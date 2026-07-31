@@ -212,6 +212,7 @@ def generate_all_bond_options(deal_data: dict, weights: dict | None = None) -> d
     is_green  = bool(deal_data.get("green_bond", False))
     liquidity = float(deal_data.get("liquidity_ratio") or 0.80)
     naics     = str(deal_data.get("naics_code") or "")
+    stage     = str(deal_data.get("stage") or "")
     nonprofit = str(deal_data.get("borrower_type") or "").lower() in (
         "nonprofit", "501c3", "501(c)(3)", "non-profit",
         "governmental", "municipality", "municipal", "issuer", "conduit"
@@ -226,9 +227,19 @@ def generate_all_bond_options(deal_data: dict, weights: dict | None = None) -> d
         eligible |= {BondType.REVENUE_BOND, BondType.DUAL_TRANCHE_NEST, BondType.TAX_EXEMPT_PAB}
     if is_green or naics[:4] in ("2211", "2212") or naics[:2] == "23":
         eligible |= {BondType.GREEN_REVENUE, BondType.SUSTAINABILITY_BOND, BondType.SOCIAL_BOND}
-    if dscr < 1.30:
+    # BAN eligibility aligned with bond_intelligence.assess_rating_readiness(),
+    # which lists "BAN (unrated, QIB only)" as achievable whenever the deal
+    # hasn't cleared the BBB- bar (dscr >= 1.5) yet, and with
+    # get_financing_path(), which recommends BAN outright for pre-development
+    # stage deals. The old `dscr < 1.30` gate sat below the 1.35 default DSCR
+    # used when no dscr is supplied, so BAN was structurally unreachable.
+    if dscr < 1.50 or stage == "pre_development":
         eligible.add(BondType.BAN)
-    if dscr < 1.50 or ltv > 78:
+    # Mezzanine fills the gap above bond_intelligence's BBB- LTV ceiling
+    # (ltv <= 70) — above that, senior-only financing doesn't reach the
+    # requested amount and a subordinate tranche is what closes the gap.
+    # The old `ltv > 78` threshold sat above every real profile tested.
+    if dscr < 1.50 or ltv > 70:
         eligible.add(BondType.MEZZANINE)
 
     options = []

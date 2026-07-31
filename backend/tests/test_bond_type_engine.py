@@ -55,3 +55,49 @@ class TestGovernmentalBorrowerEligibility:
     def test_for_profit_borrower_still_excluded(self):
         """Sanity: a plain for-profit, non-sector-matching borrower stays ineligible."""
         assert not (self._bond_types_for("for-profit corporation") & TAX_EXEMPT_TYPES)
+
+
+class TestBanAndMezzanineReachability:
+    """Ticket 2: BAN and Mezzanine must actually be reachable outputs.
+
+    Regression for the bug where BAN required dscr < 1.30 (below the 1.35
+    default used when no dscr is supplied — structurally unreachable) and
+    Mezzanine required ltv > 78 (above every real profile tested). Neither
+    ever fired despite bond_intelligence recommending BAN as an achievable
+    option and Horn Lake carrying a real $12M mezzanine tranche.
+    """
+
+    def _bond_types_for(self, **overrides) -> set:
+        deal = {
+            "noi": 5_000_000, "dscr": 1.6, "ltv": 65,
+            "bond_face": 10_000_000, "naics_code": "9999",
+        }
+        deal.update(overrides)
+        result = generate_all_bond_options(deal)
+        return {opt["bond_type"] for opt in result["all_options"]}
+
+    def test_pre_development_stage_gets_ban(self):
+        """Aligns with bond_intelligence.get_financing_path('pre_development', ...)."""
+        types = self._bond_types_for(stage="pre_development", dscr=1.8, ltv=60)
+        assert BondType.BAN.value in types
+
+    def test_sub_bbb_minus_dscr_gets_ban(self):
+        """Aligns with bond_intelligence.assess_rating_readiness()'s unconditional
+        'BAN (unrated, QIB only)' fallback below the BBB- dscr floor (1.5x)."""
+        types = self._bond_types_for(dscr=1.40, ltv=65)
+        assert BondType.BAN.value in types
+
+    def test_strong_stabilized_deal_does_not_get_ban(self):
+        types = self._bond_types_for(dscr=1.8, ltv=60)
+        assert BondType.BAN.value not in types
+
+    def test_ltv_above_bbb_minus_ceiling_gets_mezzanine(self):
+        """Aligns with bond_intelligence's BBB- ltv ceiling of 70%."""
+        types = self._bond_types_for(dscr=1.8, ltv=75)
+        assert BondType.MEZZANINE.value in types
+
+    def test_horn_lake_like_profile_gets_mezzanine(self):
+        """Horn Lake carries a real $12M mezzanine tranche despite a
+        blended DSCR at/above 1.5x — the LTV gap is what drives it."""
+        types = self._bond_types_for(dscr=1.55, ltv=76, bond_face=100_000_000)
+        assert BondType.MEZZANINE.value in types
