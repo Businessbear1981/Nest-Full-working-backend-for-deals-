@@ -142,6 +142,22 @@ PREMIUM_RATES = {
     },
 }
 
+# Contract surety products (performance/payment/bid/maintenance bonds) are
+# real construction-contract instruments — industry practice prices them off
+# the construction contract value, not the bond face, and quotes the rate as
+# dollars per $1,000 of contract (which is what PREMIUM_RATES' figures are).
+# Financial-guarantee products (cash_surety_sbloc, lc, parametric) wrap the
+# bond itself and correctly price off bond_face. Pricing performance_bond off
+# the full bond_face — which also funds land, soft costs, fees, and reserves,
+# not just hard construction cost — was the source of the ~2.5x overstatement:
+# construction contract value typically runs ~60-65% of total bond proceeds.
+CONTRACT_SURETY_PRODUCTS = {"performance_bond", "payment_bond", "bid_bond", "maintenance_bond"}
+
+# Used only when a real contract_value isn't supplied — a defensible default
+# fraction of proceeds actually going to hard construction cost, not the
+# whole raise.
+DEFAULT_CONTRACT_VALUE_PCT_OF_FACE = 0.65
+
 # Risk adjustments by asset type
 ASSET_RISK_ADJUSTMENTS = {
     "senior_living": 1.15,     # Higher — operational complexity
@@ -174,6 +190,9 @@ class SuretyScoutAgent:
         Returns detailed premium breakdown with multiple product options.
         """
         bond_face = deal.get("bond_face_usd", 100_000_000)
+        contract_value = deal.get("construction_contract_value_usd") or (
+            bond_face * DEFAULT_CONTRACT_VALUE_PCT_OF_FACE
+        )
         rating_target = deal.get("rating_target", "BBB")
         asset_type = deal.get("asset_type", "senior_living")
         state = deal.get("state", "FL")
@@ -198,16 +217,21 @@ class SuretyScoutAgent:
         for product, rates in PREMIUM_RATES.items():
             base_bps = rates.get(rating_target, rates.get("BBB", 120))
             adjusted_bps = base_bps * asset_adj * state_adj * credit_adj * duration_adj
-            annual_premium = bond_face * adjusted_bps / 10000
+
+            is_contract_surety = product in CONTRACT_SURETY_PRODUCTS
+            base_amount = contract_value if is_contract_surety else bond_face
+            annual_premium = base_amount * adjusted_bps / 10000
             total_premium = annual_premium * duration_years
 
             options[product] = {
                 "product": product,
                 "base_rate_bps": base_bps,
                 "adjusted_rate_bps": round(adjusted_bps),
+                "priced_off": "construction_contract_value" if is_contract_surety else "bond_face",
+                "base_amount_usd": round(base_amount),
                 "annual_premium_usd": round(annual_premium),
                 "total_premium_usd": round(total_premium),
-                "pct_of_face": round(adjusted_bps / 100, 3),
+                "pct_of_base": round(adjusted_bps / 100, 3),
                 "adjustments": {
                     "asset_type": f"{asset_adj:.2f}x ({asset_type})",
                     "state": f"{state_adj:.2f}x ({state})",
