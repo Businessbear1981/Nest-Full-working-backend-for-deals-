@@ -68,6 +68,48 @@ class TestComputeMetrics:
         }
         assert expected.issubset(set(m.keys()))
 
+    # ── Regression: real 2027A facts (par $10.0M, pledged revenue
+    # $1,278,200, debt service $745,494) previously produced
+    # DSCR == 1,278,200.0 and equity_pct == 3,500,000,000.0 because
+    # missing debt_service/total_project_cost silently defaulted to 1.
+
+    REAL_2027A_DEAL = {
+        "noi": 1_278_200,
+        "debt_service": 745_494,
+        "total_debt": 10_000_000,
+        "total_assets": 14_500_000,
+        "equity": 4_500_000,
+        "project_value": 14_500_000,
+        "total_project_cost": 14_500_000,
+    }
+
+    def test_2027a_dscr_is_sane(self):
+        m = engine.compute_metrics(self.REAL_2027A_DEAL)
+        assert 0 <= m["dscr"] <= 20
+        assert m["dscr"] == round(1_278_200 / 745_494, 3)
+
+    def test_2027a_equity_pct_is_sane(self):
+        m = engine.compute_metrics(self.REAL_2027A_DEAL)
+        assert 0 <= m["equity_pct"] <= 100
+        assert m["equity_pct"] == round(4_500_000 / 14_500_000 * 100, 2)
+
+    def test_missing_debt_service_raises(self):
+        deal = {k: v for k, v in self.STRONG_DEAL.items() if k != "debt_service"}
+        try:
+            engine.compute_metrics(deal)
+            assert False, "expected ValueError for missing debt_service"
+        except ValueError:
+            pass
+
+    def test_zero_total_project_cost_raises(self):
+        deal = dict(self.STRONG_DEAL)
+        deal["total_project_cost"] = 0
+        try:
+            engine.compute_metrics(deal)
+            assert False, "expected ValueError for zero total_project_cost"
+        except ValueError:
+            pass
+
 
 # ── JPM Benchmark comparison ──────────────────────────────────────
 

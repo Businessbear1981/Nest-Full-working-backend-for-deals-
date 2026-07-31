@@ -40,22 +40,40 @@ class CreditEngine:
             interest_expense, equity, project_value, total_project_cost
         """
         noi = deal_data.get("noi", 0)
-        debt_service = deal_data.get("debt_service", 1)
         total_debt = deal_data.get("total_debt", 0)
-        total_assets = deal_data.get("total_assets", 1)
+
+        # debt_service, total_assets, project_value, and total_project_cost are
+        # real denominators — silently defaulting them to 1 previously produced
+        # nonsense ratios (e.g. DSCR == noi, equity_pct in the billions) instead
+        # of surfacing the missing/zero input. Require them explicitly.
+        for key in ("debt_service", "total_assets", "project_value", "total_project_cost"):
+            value = deal_data.get(key)
+            if value is None or value <= 0:
+                raise ValueError(
+                    f"compute_metrics: '{key}' is required and must be > 0, got {value!r}"
+                )
+
+        debt_service = deal_data["debt_service"]
+        total_assets = deal_data["total_assets"]
+        project_value = deal_data["project_value"]
+        tpc = deal_data["total_project_cost"]
+
         ebitda = deal_data.get("ebitda", noi)
         interest_expense = deal_data.get("interest_expense", debt_service * 0.6)
         equity = deal_data.get("equity", total_assets - total_debt)
-        project_value = deal_data.get("project_value", total_assets)
-        tpc = deal_data.get("total_project_cost", total_assets)
 
-        dscr = noi / debt_service if debt_service > 0 else 0
-        ltv = (total_debt / project_value * 100) if project_value > 0 else 100
+        dscr = noi / debt_service
+        ltv = total_debt / project_value * 100
         cf_leverage = total_debt / noi if noi > 0 else 99
         bs_leverage = total_debt / equity if equity > 0 else 99
         d_ebitda = total_debt / ebitda if ebitda > 0 else 99
         icr = ebitda / interest_expense if interest_expense > 0 else 0
-        equity_pct = (equity / tpc * 100) if tpc > 0 else 0
+        equity_pct = equity / tpc * 100
+
+        if not (0 <= dscr <= 20):
+            raise ValueError(f"compute_metrics: DSCR {dscr!r} out of sane bounds [0, 20] — check noi/debt_service inputs")
+        if not (0 <= equity_pct <= 100):
+            raise ValueError(f"compute_metrics: equity_pct {equity_pct!r} out of sane bounds [0, 100] — check equity/total_project_cost inputs")
 
         # LGD calculations
         lgd_bare = self.compute_lgd({})
