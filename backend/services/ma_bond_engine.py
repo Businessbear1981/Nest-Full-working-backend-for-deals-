@@ -181,7 +181,14 @@ class MABondEngine:
             },
             "pik_advantage_usd": pik_equity - cash_equity,
             "verdict": "PIK wins" if pik_equity > cash_equity else "Cash pay wins",
-            "explanation": "PIK retains cash in business. Cash compounds into EBITDA growth. Higher EBITDA x exit multiple = larger equity value at exit. PIK wins for growth companies every time.",
+            "explanation": (
+                "PIK retains cash in business. Cash compounds into EBITDA growth. "
+                "Higher EBITDA x exit multiple = larger equity value at exit than the coupon paid out and foregone from compounding."
+                if pik_equity > cash_equity else
+                "Cash pay's steady coupon reduces balance-sheet accretion risk. Here the retained cash "
+                "PIK would have kept in the business didn't compound into enough incremental EBITDA/exit value "
+                "to outweigh cash pay's lower ending balance — cash pay wins."
+            ),
         }
 
     def draw_term_analysis(self, total_bond: float, initial_draw_pct: float,
