@@ -10,7 +10,10 @@ Each transition carries specific data. This orchestrator manages
 what data flows between desks and validates completeness.
 """
 from __future__ import annotations
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class DealFlow:
@@ -80,8 +83,10 @@ class DealFlow:
             memo = CreditMemoAgent().generate_memo(deal)
             deal["credit_memo"] = memo
             deal["desk_outputs"]["credit_underwriting"]["memo"] = memo
-        except Exception:
+        except Exception as e:
+            logger.exception("run_credit: credit memo generation failed for deal %s", deal.get("deal_id"))
             deal["credit_memo"] = None
+            deal["credit_memo_error"] = str(e)
 
         deal["stage"] = "credit_complete"
         deal["stage_timestamp"] = datetime.utcnow().isoformat()
@@ -124,6 +129,7 @@ class DealFlow:
                 "predicted_moodys": deal["predicted_moodys"],
             }
         except Exception as e:
+            logger.exception("run_rating: rating prediction failed for deal %s", deal.get("deal_id"))
             deal["rating_error"] = str(e)
 
         deal["stage"] = "rating_complete"
