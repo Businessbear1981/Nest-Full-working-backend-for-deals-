@@ -1,0 +1,230 @@
+﻿"use client";
+import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useDealState, type Deal } from "@/contexts/DealStateContext";
+import { useBernard } from "@/contexts/BernardContext";
+
+const API = process.env.NEXT_PUBLIC_API_URL || "https://nest-platform-production.up.railway.app";
+
+interface PipelineDeal {
+  id: string;
+  name: string;
+  sponsor: string;
+  total_project_cost_usd: number;
+  stabilized_noi_usd: number;
+  appraised_value_usd: number;
+  use_of_proceeds: string;
+  sector: string;
+  phase: Deal["phase"];
+  grade?: string;
+  dscr?: number;
+  assignedPartners?: string[];
+  lastActivity?: string;
+}
+
+const PHASES: { key: Deal["phase"]; label: string; color: string; glow: string }[] = [
+  { key: "sourcing", label: "Sourcing", color: "border-[#2D6B3D]/30 bg-[#2D6B3D]/[0.06]", glow: "bg-[#7A9A82]" },
+  { key: "structuring", label: "Structuring", color: "border-[#C4A048]/30 bg-cyan-500/[0.06]", glow: "bg-cyan-400" },
+  { key: "placement", label: "Placement", color: "border-amber-500/30 bg-amber-500/[0.06]", glow: "bg-amber-400" },
+  { key: "closing", label: "Closing", color: "border-emerald-500/30 bg-emerald-500/[0.06]", glow: "bg-emerald-400" },
+];
+
+// Maps /api/deals status → Bond Desk pipeline phase
+function statusToPhase(status: string): Deal["phase"] {
+  if (status === "closing" || status === "closed") return "closing";
+  if (status === "placement" || status === "book_building") return "placement";
+  if (status === "structuring" || status === "credit_underwriting" || status === "rated") return "structuring";
+  return "sourcing";
+}
+
+function mapApiDeal(d: Record<string, unknown>): PipelineDeal {
+  const amount = (d.amount as number) || (d.bond_face as number) || 0;
+  return {
+    id: (d.id as string) || String(Math.random()),
+    name: (d.name as string) || "Unnamed Deal",
+    sponsor: (d.issuer as string) || (d.sponsor as string) || "Unknown Sponsor",
+    total_project_cost_usd: amount,
+    stabilized_noi_usd: (d.stabilized_noi as number) || Math.round(amount * 0.09),
+    appraised_value_usd: (d.appraised_value as number) || Math.round(amount * 1.2),
+    use_of_proceeds: (d.notes as string) || (d.deal_type as string) || "",
+    sector: ((d.deal_type as string) || "other").replace(/_bond$/, "").replace(/_/g, " "),
+    phase: statusToPhase((d.status as string) || "sourcing"),
+    grade: (d.risk_grade as string) || undefined,
+    dscr: (d.dscr as number) || undefined,
+    assignedPartners: [],
+    lastActivity: d.created_at ? `Created ${new Date(d.created_at as string).toLocaleDateString()}` : undefined,
+  };
+}
+
+const GRADE_COLORS: Record<string, string> = {
+  A: "text-emerald-400", "BBB+": "text-emerald-300", BBB: "text-[#C4A048]",
+  "BBB-": "text-[#C4A048]", "BB+": "text-amber-400", "Sub-IG": "text-rose-400",
+};
+
+export default function DealPipelineDashboard() {
+  const { setDeal, log } = useDealState();
+  const bernard = useBernard();
+  const [collapsed, setCollapsed] = useState(false);
+  const [pipeline, setPipeline] = useState<PipelineDeal[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`${API}/api/deals`)
+      .then((r) => r.json())
+      .then((json) => {
+        const raw: Record<string, unknown>[] = Array.isArray(json.data)
+          ? json.data
+          : Array.isArray(json)
+          ? json
+          : [];
+        setPipeline(raw.map(mapApiDeal));
+      })
+      .catch(() => setPipeline([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleLoadDeal = (deal: PipelineDeal) => {
+    setDeal({
+      id: deal.id,
+      name: deal.name,
+      sponsor: deal.sponsor,
+      total_project_cost_usd: deal.total_project_cost_usd,
+      stabilized_noi_usd: deal.stabilized_noi_usd,
+      appraised_value_usd: deal.appraised_value_usd,
+      use_of_proceeds: deal.use_of_proceeds,
+      sector: deal.sector,
+      phase: deal.phase,
+    });
+    log("NEST", "deal_loaded", `${deal.name} loaded from pipeline`);
+    bernard.push({
+      type: "deal_loaded",
+      depths: {
+        expert: `Loaded ${deal.name}. ${deal.grade ?? "Ungraded"}. ${deal.phase}.`,
+        standard: `Loaded "${deal.name}" (${deal.phase} phase). $${(deal.total_project_cost_usd / 1e6).toFixed(0)}M TPC. ${deal.grade ? `Current grade: ${deal.grade}, DSCR ${deal.dscr?.toFixed(2)}x.` : "Not yet graded — add tranches to begin."}`,
+        educational: `You've loaded "${deal.name}" from the deal pipeline. This is a $${(deal.total_project_cost_usd / 1e6).toFixed(0)}M ${deal.sector.replace("_", " ")} project sponsored by ${deal.sponsor}. ${deal.grade ? `It's currently graded ${deal.grade} with a ${deal.dscr?.toFixed(2)}x DSCR. ` : "It hasn't been graded yet — you'll need to add tranches to structure it. "}The deal is in the ${deal.phase} phase. ${deal.assignedPartners && deal.assignedPartners.length > 0 ? `Partners assigned: ${deal.assignedPartners.join(", ")}.` : "No partners assigned yet."}`,
+      },
+    });
+  };
+
+  const totalPipeline = pipeline.reduce((s, d) => s + d.total_project_cost_usd, 0);
+
+  if (loading) {
+    return (
+      <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-5 py-4 font-mono text-[0.6rem] text-[#7A9A82]">
+        Loading deals from pipeline…
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+      {/* Header */}
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex w-full items-center justify-between px-5 py-3 transition-colors hover:bg-white/[0.02]"
+      >
+        <div className="flex items-center gap-4">
+          <h2 className="font-[Cormorant_Garamond] text-lg font-semibold text-[#EDE8DC]">
+            Deal Pipeline
+          </h2>
+          <div className="flex items-center gap-3 font-mono text-[0.6rem] text-[#7A9A82]">
+            <span>{pipeline.length} deals</span>
+            <span>·</span>
+            <span className="text-[#C4A048]">${(totalPipeline / 1e6).toFixed(0)}M total</span>
+            <span>·</span>
+            {PHASES.map((p) => {
+              const count = pipeline.filter((d) => d.phase === p.key).length;
+              return count > 0 ? (
+                <span key={p.key} className="flex items-center gap-1">
+                  <div className={`h-1.5 w-1.5 rounded-full ${p.glow}`} />
+                  {count} {p.label.toLowerCase()}
+                </span>
+              ) : null;
+            })}
+          </div>
+        </div>
+        <span className="font-mono text-xs text-[#7A9A82]">{collapsed ? "▸" : "▾"}</span>
+      </button>
+
+      {/* Pipeline Kanban */}
+      <AnimatePresence>
+        {!collapsed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="grid grid-cols-4 gap-3 px-5 pb-4">
+              {PHASES.map((phase) => {
+                const deals = pipeline.filter((d) => d.phase === phase.key);
+                return (
+                  <div key={phase.key} className="space-y-2">
+                    {/* Phase Header */}
+                    <div className="flex items-center gap-2 py-1">
+                      <div className={`h-2 w-2 rounded-full ${phase.glow}`} />
+                      <span className="font-mono text-[0.6rem] uppercase tracking-wider text-[#7A9A82]">
+                        {phase.label}
+                      </span>
+                      <span className="font-mono text-[0.55rem] text-[#7A9A82]">({deals.length})</span>
+                    </div>
+
+                    {/* Deal Cards */}
+                    {deals.map((deal) => (
+                      <motion.button
+                        key={deal.id}
+                        layout
+                        onClick={() => handleLoadDeal(deal)}
+                        className={`w-full rounded-xl border p-3 text-left transition-all hover:scale-[1.02] hover:shadow-lg ${phase.color}`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <span className="font-[Space_Grotesk] text-[0.8rem] font-medium text-[#EDE8DC] leading-tight">
+                            {deal.name}
+                          </span>
+                          {deal.grade && (
+                            <span className={`font-mono text-[0.6rem] font-semibold ${GRADE_COLORS[deal.grade] ?? "text-[#7A9A82]"}`}>
+                              {deal.grade}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 font-mono text-[0.55rem] text-[#7A9A82]">
+                          {deal.sponsor} · ${(deal.total_project_cost_usd / 1e6).toFixed(0)}M
+                        </div>
+                        {deal.dscr && (
+                          <div className="mt-1 font-mono text-[0.55rem] text-[#C4A048]">
+                            DSCR {deal.dscr.toFixed(2)}x
+                          </div>
+                        )}
+                        {deal.assignedPartners && deal.assignedPartners.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {deal.assignedPartners.map((p) => (
+                              <span key={p} className="rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 font-mono text-[0.45rem] text-[#7A9A82]">
+                                {p}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {deal.lastActivity && (
+                          <div className="mt-1.5 font-mono text-[0.5rem] text-[#7A9A82] italic">
+                            {deal.lastActivity}
+                          </div>
+                        )}
+                      </motion.button>
+                    ))}
+
+                    {deals.length === 0 && (
+                      <div className="rounded-xl border border-dashed border-white/[0.06] py-6 text-center font-mono text-[0.55rem] text-[#2D6B3D]">
+                        No deals
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

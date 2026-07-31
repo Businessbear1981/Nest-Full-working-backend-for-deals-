@@ -1,0 +1,479 @@
+"use client";
+import { useEffect, useMemo, useState } from "react";
+
+const API = process.env.NEXT_PUBLIC_API_URL || "https://nest-platform-production.up.railway.app";
+
+/* ── AI Tool Types ── */
+type AIToolResult = { url?: string; id?: string; status?: string; error?: string; message?: string };
+
+/* ── AI Tool Tab IDs ── */
+type AITab = "higgsfield" | "meshy" | "suno" | "101labs";
+
+const AI_TABS: { id: AITab; label: string; tagline: string; inputLabel: string; btnLabel: string; endpoint: string; tool: string }[] = [
+  { id: "higgsfield", label: "Higgsfield", tagline: "AI video generation", inputLabel: "Video prompt — describe the scene, motion, and tone", btnLabel: "Generate Video", endpoint: "/api/marketing/generate-video", tool: "higgsfield" },
+  { id: "meshy", label: "Meshy", tagline: "3D model / image generation", inputLabel: "Describe the 3D asset — object, style, materials", btnLabel: "Generate 3D", endpoint: "/api/marketing/generate-3d", tool: "meshy" },
+  { id: "suno", label: "Suno", tagline: "AI music generation", inputLabel: "Music style, mood, tempo, instruments", btnLabel: "Generate Track", endpoint: "/api/marketing/generate-audio", tool: "suno" },
+  { id: "101labs", label: "101 Labs", tagline: "AI content writing", inputLabel: "Topic, tone, target audience, key points to hit", btnLabel: "Generate Content", endpoint: "/api/marketing/generate-content", tool: "101labs" },
+];
+
+/* ── Types ── */
+type ContentType = { value: string; label: string };
+
+type Generation = {
+  id: string;
+  content_type: string;
+  content_type_label: string;
+  content: string;
+  word_count: number;
+  estimated_read_time: string;
+  generated_at: string;
+  context: Record<string, unknown>;
+  error?: string | null;
+};
+
+/* ── Inline API calls (replaces marketing.ts lib) ── */
+async function listContentTypes(): Promise<ContentType[]> {
+  try {
+    const r = await fetch(`${API}/api/marketing/content-types`, { cache: "no-store" });
+    return r.json();
+  } catch { return []; }
+}
+
+async function generate(content_type: string, context: Record<string, unknown>): Promise<Generation> {
+  const r = await fetch(`${API}/api/marketing/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content_type, context }),
+  });
+  return r.json();
+}
+
+async function generateBatch(deal_id: string, context: Record<string, unknown>) {
+  const r = await fetch(`${API}/api/marketing/batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deal_id, context }),
+  });
+  return r.json();
+}
+
+async function listHistory(): Promise<Generation[]> {
+  try {
+    const r = await fetch(`${API}/api/marketing/history`, { cache: "no-store" });
+    if (!r.ok) return [];
+    return r.json();
+  } catch { return []; }
+}
+
+export default function MarketingStudio() {
+  const [types, setTypes] = useState<ContentType[]>([]);
+  const [contentType, setContentType] = useState<string>("executive_summary");
+  const [dealId, setDealId] = useState("JT-2025-42");
+  const [clientName, setClientName] = useState("Jacaranda Trace Partners");
+  const [angles, setAngles] = useState("Surety cost-out from 9% to under 1%\nRefi cycle economics\nNEST as a decision, not a service");
+  const [loading, setLoading] = useState(false);
+  const [current, setCurrent] = useState<Generation | null>(null);
+  const [edited, setEdited] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [history, setHistory] = useState<Generation[]>([]);
+  const [batchDeal, setBatchDeal] = useState("JT-2025-42");
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [distributeLoading, setDistributeLoading] = useState(false);
+  const [distributeResult, setDistributeResult] = useState<{delivered_count:number;qualified_count:number;dry_run:boolean;deal_name:string;delivery_results:{recipient:string;ok:boolean;dry_run:boolean}[]} | null>(null);
+
+  /* ── AI Tool Panel State ── */
+  const [activeAITab, setActiveAITab] = useState<AITab>("higgsfield");
+  const [aiEnabled, setAiEnabled] = useState<Record<AITab, boolean>>({ higgsfield: false, meshy: false, suno: false, "101labs": false });
+  const [aiPrompts, setAiPrompts] = useState<Record<AITab, string>>({ higgsfield: "", meshy: "", suno: "", "101labs": "" });
+  const [aiLoading, setAiLoading] = useState<Record<AITab, boolean>>({ higgsfield: false, meshy: false, suno: false, "101labs": false });
+  const [aiResults, setAiResults] = useState<Record<AITab, AIToolResult | null>>({ higgsfield: null, meshy: null, suno: null, "101labs": null });
+
+  useEffect(() => {
+    listContentTypes().then(setTypes).catch(() => {});
+    listHistory().then(setHistory).catch(() => {});
+  }, []);
+
+  const displayContent = useMemo(
+    () => (edited !== null ? edited : current?.content || ""),
+    [edited, current]
+  );
+
+  async function onGenerate() {
+    setLoading(true);
+    setEdited(null);
+    setEditing(false);
+    try {
+      const context = {
+        deal_id: dealId || undefined,
+        client_name: clientName || undefined,
+        angles: angles.split("\n").map((s) => s.trim()).filter(Boolean),
+      };
+      const rec = await generate(contentType, context);
+      setCurrent(rec);
+      const fresh = await listHistory();
+      setHistory(fresh);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onBatch() {
+    if (!batchDeal) return;
+    setBatchLoading(true);
+    try {
+      const context = { client_name: clientName, angles: angles.split("\n").filter(Boolean) };
+      const pkg = await generateBatch(batchDeal, context);
+      const first = Object.values(pkg.materials)[0] as Generation | undefined;
+      if (first) setCurrent(first);
+      const fresh = await listHistory();
+      setHistory(fresh);
+    } finally {
+      setBatchLoading(false);
+    }
+  }
+
+  async function onDistribute() {
+    if (!batchDeal) return;
+    setDistributeLoading(true);
+    setDistributeResult(null);
+    try {
+      const r = await fetch(`${API}/api/marketing/distribute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deal_id: batchDeal,
+          deal: { name: clientName },
+          context: { deal_name: clientName, angles: angles.split("\n").filter(Boolean) },
+          send_email: true,
+        }),
+      });
+      const json = await r.json();
+      if (json.success) setDistributeResult(json);
+    } finally {
+      setDistributeLoading(false);
+    }
+  }
+
+  function downloadMarkdown() {
+    if (!current) return;
+    const blob = new Blob([displayContent], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `nest_${current.content_type}_${current.id}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function copyToClipboard() {
+    await navigator.clipboard.writeText(displayContent);
+  }
+
+  async function runAITool(tab: AITab) {
+    const cfg = AI_TABS.find(t => t.id === tab)!;
+    const prompt = aiPrompts[tab].trim();
+    if (!prompt) return;
+    setAiLoading(prev => ({ ...prev, [tab]: true }));
+    setAiResults(prev => ({ ...prev, [tab]: null }));
+    try {
+      const r = await fetch(`${API}${cfg.endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, tool: cfg.tool }),
+      });
+      const data: AIToolResult = await r.json();
+      setAiResults(prev => ({ ...prev, [tab]: data }));
+    } catch (e) {
+      setAiResults(prev => ({ ...prev, [tab]: { error: "Request failed — backend may not have this endpoint yet." } }));
+    } finally {
+      setAiLoading(prev => ({ ...prev, [tab]: false }));
+    }
+  }
+
+  const inputCls = "mt-1 w-full rounded-lg border border-white/10 bg-[#03060b] px-3 py-2 font-mono text-xs text-white outline-none focus:border-amber-300/40";
+
+  return (
+    <main className="min-h-screen bg-[#03060b] px-6 py-8 text-[#EDE8DC]">
+      <div className="mx-auto max-w-6xl space-y-5">
+        {/* Header */}
+        <div className="rounded-[1.5rem] border border-amber-300/20 bg-[#07101a]/80 p-6">
+          <div className="flex items-baseline gap-3">
+            <h1 className="font-mono text-xl font-bold uppercase tracking-[0.06em] text-white">Marketing Studio</h1>
+            <span className="rounded bg-amber-300/15 px-2 py-0.5 font-mono text-[0.55rem] font-semibold text-amber-300">Morgan - Jimmy Lee tone</span>
+          </div>
+          <p className="mt-1 text-xs text-[#7A9A82]">Content command center. Every output is direct, decisive, no hedging.</p>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[300px_1fr_240px]">
+          {/* LEFT - Content type + context */}
+          <div className="rounded-[1.25rem] border border-white/10 bg-[#07101a]/80 p-5 space-y-3">
+            <h3 className="font-mono text-sm font-bold uppercase tracking-[0.1em] text-[#7A9A82]">Content Type</h3>
+            <label className="block">
+              <span className="font-mono text-[0.6rem] uppercase tracking-[0.1em] text-[#7A9A82]">Type</span>
+              <select className={inputCls} value={contentType} onChange={(e) => setContentType(e.target.value)}>
+                {types.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="font-mono text-[0.6rem] uppercase tracking-[0.1em] text-[#7A9A82]">Deal ID</span>
+              <input className={inputCls} value={dealId} onChange={(e) => setDealId(e.target.value)} />
+            </label>
+            <label className="block">
+              <span className="font-mono text-[0.6rem] uppercase tracking-[0.1em] text-[#7A9A82]">Client / Sponsor Name</span>
+              <input className={inputCls} value={clientName} onChange={(e) => setClientName(e.target.value)} />
+            </label>
+            <label className="block">
+              <span className="font-mono text-[0.6rem] uppercase tracking-[0.1em] text-[#7A9A82]">Angles to Hit (one per line)</span>
+              <textarea className={`${inputCls} resize-y`} rows={4} value={angles} onChange={(e) => setAngles(e.target.value)} />
+            </label>
+            <button
+              onClick={onGenerate}
+              disabled={loading}
+              className="w-full rounded-[1rem] border border-amber-300/40 bg-amber-300/10 px-5 py-3 font-mono text-xs font-semibold uppercase tracking-[0.12em] text-amber-200 transition hover:bg-amber-300/20 disabled:opacity-50"
+            >
+              {loading ? "Generating..." : "Generate"}
+            </button>
+          </div>
+
+          {/* CENTER - Output */}
+          <div className="rounded-[1.25rem] border border-white/10 bg-[#07101a]/80 p-5">
+            <h3 className="mb-3 font-mono text-sm font-bold uppercase tracking-[0.1em] text-[#7A9A82]">Output</h3>
+            {current ? (
+              <>
+                <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-[#7A9A82]">
+                  <span>{current.content_type_label}</span>
+                  <span>- {current.word_count} words</span>
+                  <span>- {current.estimated_read_time}</span>
+                  <button
+                    onClick={() => setEditing((e) => !e)}
+                    className="ml-auto rounded border border-white/10 px-2 py-0.5 font-mono text-[0.6rem] text-[#7A9A82] hover:text-white"
+                  >
+                    {editing ? "Preview" : "Edit"}
+                  </button>
+                </div>
+                {current.error && <div className="mb-2 rounded bg-red-500/15 p-2 text-xs text-red-400">Error: {current.error}</div>}
+                {editing ? (
+                  <textarea
+                    className="h-96 w-full rounded-lg border border-white/10 bg-[#03060b] p-3 font-mono text-xs text-white outline-none"
+                    value={displayContent}
+                    onChange={(e) => setEdited(e.target.value)}
+                  />
+                ) : (
+                  <div className="prose prose-invert prose-sm max-w-none whitespace-pre-wrap font-mono text-xs leading-7 text-[#EDE8DC]">
+                    {displayContent}
+                  </div>
+                )}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {[
+                    { label: "Copy", onClick: copyToClipboard },
+                    { label: "Download .md", onClick: downloadMarkdown },
+                    { label: "Print / Save PDF", onClick: () => window.print() },
+                  ].map((btn) => (
+                    <button
+                      key={btn.label}
+                      onClick={btn.onClick}
+                      className="rounded border border-white/10 px-3 py-1.5 font-mono text-[0.6rem] text-[#7A9A82] transition hover:bg-white/5 hover:text-white"
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-[#7A9A82]">Pick a content type and hit Generate. The output lands here.</p>
+            )}
+          </div>
+
+          {/* RIGHT - History */}
+          <div className="rounded-[1.25rem] border border-white/10 bg-[#07101a]/80 p-5">
+            <h3 className="mb-3 font-mono text-sm font-bold uppercase tracking-[0.1em] text-[#7A9A82]">Recent</h3>
+            {history.length === 0 && <p className="text-xs text-[#7A9A82]">Nothing yet.</p>}
+            {history.map((h) => (
+              <div
+                key={h.id}
+                className="cursor-pointer border-b border-white/5 py-2 last:border-b-0 hover:bg-white/5"
+                onClick={() => { setCurrent(h); setEdited(null); setEditing(false); }}
+              >
+                <div className="text-xs text-[#EDE8DC]">{h.content_type_label}</div>
+                <div className="font-mono text-[0.55rem] text-[#7A9A82]">
+                  {new Date(h.generated_at).toLocaleString()} - {h.word_count}w
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Batch Bar */}
+        <div className="flex flex-wrap items-center gap-3 rounded-[1.25rem] border border-white/10 bg-[#07101a]/80 p-4">
+          <div className="font-mono text-xs font-semibold text-white">Batch - Full Deal Marketing Package</div>
+          <span className="text-xs text-[#7A9A82]">exec summary + teaser + term-sheet cover + deck slide</span>
+          <input
+            className="flex-1 rounded-lg border border-white/10 bg-[#03060b] px-3 py-2 font-mono text-xs text-white outline-none focus:border-amber-300/40"
+            style={{ minWidth: 200 }}
+            value={batchDeal}
+            onChange={(e) => setBatchDeal(e.target.value)}
+            placeholder="deal_id"
+          />
+          <button
+            onClick={onBatch}
+            disabled={batchLoading || !batchDeal}
+            className="rounded-[1rem] border border-amber-300/40 bg-amber-300/10 px-5 py-2 font-mono text-xs font-semibold uppercase tracking-[0.12em] text-amber-200 transition hover:bg-amber-300/20 disabled:opacity-50"
+          >
+            {batchLoading ? "Building package..." : "Build Package"}
+          </button>
+          <button
+            onClick={onDistribute}
+            disabled={distributeLoading || !batchDeal}
+            className="rounded-[1rem] border border-[#C4A048]/50 bg-[#C4A048]/15 px-5 py-2 font-mono text-xs font-semibold uppercase tracking-[0.12em] text-[#C4A048] transition hover:bg-[#C4A048]/25 disabled:opacity-50"
+          >
+            {distributeLoading ? "Sending..." : "Send to Partners"}
+          </button>
+        </div>
+
+        {/* Distribution result */}
+        {distributeResult && (
+          <div className="rounded-[1.25rem] border border-[#C4A048]/30 bg-[#030A06] p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-[0.6rem] font-bold uppercase tracking-[0.15em] text-[#C4A048]">Distribution Report</span>
+              {distributeResult.dry_run && (
+                <span className="rounded bg-amber-400/20 px-2 py-0.5 font-mono text-[0.5rem] font-semibold text-amber-300">DRY RUN — add SENDGRID_API_KEY to send live</span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-6 font-mono text-xs">
+              <span className="text-[#7A9A82]">Deal: <span className="text-white">{distributeResult.deal_name}</span></span>
+              <span className="text-[#7A9A82]">Matched: <span className="text-[#C4A048] font-bold">{distributeResult.qualified_count}</span> investors</span>
+              <span className="text-[#7A9A82]">Delivered: <span className="text-emerald-400 font-bold">{distributeResult.delivered_count}</span></span>
+            </div>
+            {distributeResult.delivery_results.length > 0 && (
+              <div className="space-y-1">
+                {distributeResult.delivery_results.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2 font-mono text-[0.6rem]">
+                    <span className={r.ok ? "text-emerald-400" : "text-red-400"}>{r.ok ? "✓" : "✗"}</span>
+                    <span className="text-[#EDE8DC]">{r.recipient}</span>
+                    {r.dry_run && <span className="text-[#7A9A82]">(dry run)</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* AI Media Tools */}
+        <div className="rounded-[1.5rem] border border-[#C4A048]/25 bg-[#07101a]/80 p-6">
+          {/* Panel header */}
+          <div className="mb-5 flex items-baseline gap-3">
+            <h2 className="font-mono text-sm font-bold uppercase tracking-[0.1em] text-white">AI Media Tools</h2>
+            <span className="rounded bg-[#C4A048]/15 px-2 py-0.5 font-mono text-[0.55rem] font-semibold text-[#C4A048]">Higgsfield · Meshy · Suno · 101 Labs</span>
+          </div>
+
+          {/* Tab row */}
+          <div className="mb-5 flex flex-wrap gap-2">
+            {AI_TABS.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveAITab(tab.id)}
+                className={`rounded-[0.75rem] border px-4 py-1.5 font-mono text-xs font-semibold uppercase tracking-[0.1em] transition ${
+                  activeAITab === tab.id
+                    ? "border-[#C4A048]/60 bg-[#C4A048]/15 text-[#C4A048]"
+                    : "border-white/10 text-[#7A9A82] hover:border-white/20 hover:text-white"
+                }`}
+              >
+                {tab.label}
+                {aiEnabled[tab.id] && (
+                  <span className="ml-2 inline-block h-1.5 w-1.5 rounded-full bg-[#C4A048]" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Active tool panel */}
+          {AI_TABS.map(tab => {
+            if (tab.id !== activeAITab) return null;
+            const enabled = aiEnabled[tab.id];
+            const result = aiResults[tab.id];
+            const isLoading = aiLoading[tab.id];
+            return (
+              <div key={tab.id} className="grid gap-4 lg:grid-cols-[1fr_320px]">
+                {/* Left: controls */}
+                <div className="space-y-4">
+                  {/* Toggle row */}
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setAiEnabled(prev => ({ ...prev, [tab.id]: !prev[tab.id] }))}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${enabled ? "bg-[#C4A048]" : "bg-[#2D6B3D]/40"}`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`} />
+                    </button>
+                    <span className={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.14em] ${enabled ? "text-[#C4A048]" : "text-[#7A9A82]"}`}>
+                      {enabled ? "ENABLED" : "DISABLED"}
+                    </span>
+                    <span className="font-mono text-[0.6rem] text-[#7A9A82]">— {tab.tagline}</span>
+                  </div>
+
+                  {/* Prompt area — only when enabled */}
+                  {enabled && (
+                    <div className="space-y-3">
+                      <label className="block">
+                        <span className="font-mono text-[0.6rem] uppercase tracking-[0.1em] text-[#7A9A82]">{tab.inputLabel}</span>
+                        <textarea
+                          className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-[#03060b] px-3 py-2 font-mono text-xs text-white outline-none focus:border-amber-300/40"
+                          rows={4}
+                          placeholder={`Describe what you want ${tab.label} to generate…`}
+                          value={aiPrompts[tab.id]}
+                          onChange={e => setAiPrompts(prev => ({ ...prev, [tab.id]: e.target.value }))}
+                        />
+                      </label>
+                      <button
+                        onClick={() => runAITool(tab.id)}
+                        disabled={isLoading || !aiPrompts[tab.id].trim()}
+                        className="rounded-[1rem] border border-[#C4A048]/40 bg-[#C4A048]/10 px-6 py-2.5 font-mono text-xs font-semibold uppercase tracking-[0.12em] text-[#C4A048] transition hover:bg-[#C4A048]/20 disabled:opacity-50"
+                      >
+                        {isLoading ? "Generating…" : tab.btnLabel}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: result / info panel */}
+                <div className="rounded-[1rem] border border-white/10 bg-[#03060b]/60 p-4">
+                  {!enabled && (
+                    <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+                      <div className="font-mono text-[0.65rem] uppercase tracking-[0.12em] text-[#7A9A82]">Tool disabled</div>
+                      <p className="text-xs text-[#7A9A82]/60">Toggle on to activate {tab.label}</p>
+                    </div>
+                  )}
+                  {enabled && !result && !isLoading && (
+                    <p className="text-xs text-[#7A9A82]">Enter a prompt and hit {tab.btnLabel} to see the output here.</p>
+                  )}
+                  {enabled && isLoading && (
+                    <div className="space-y-2">
+                      <div className="h-2 w-3/4 animate-pulse rounded bg-[#C4A048]/20" />
+                      <div className="h-2 w-1/2 animate-pulse rounded bg-[#C4A048]/10" />
+                      <p className="mt-3 font-mono text-[0.6rem] uppercase tracking-wider text-[#7A9A82]">Generating…</p>
+                    </div>
+                  )}
+                  {enabled && result && !isLoading && (
+                    <div className="space-y-2">
+                      {result.error && (
+                        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 font-mono text-xs text-red-300">{result.error}</div>
+                      )}
+                      {result.url && (
+                        <div className="space-y-2">
+                          <p className="font-mono text-[0.6rem] uppercase tracking-wider text-[#7A9A82]">Output URL</p>
+                          <a href={result.url} target="_blank" rel="noopener noreferrer" className="block truncate font-mono text-xs text-[#C4A048] underline">{result.url}</a>
+                        </div>
+                      )}
+                      {result.id && <p className="font-mono text-[0.6rem] text-[#7A9A82]">Job ID: <span className="text-white">{result.id}</span></p>}
+                      {result.status && <p className="font-mono text-[0.6rem] text-[#7A9A82]">Status: <span className="text-[#C4A048]">{result.status}</span></p>}
+                      {result.message && <p className="text-xs text-[#EDE8DC]">{result.message}</p>}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </main>
+  );
+}

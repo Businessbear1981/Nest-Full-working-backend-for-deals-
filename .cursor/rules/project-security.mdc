@@ -1,0 +1,40 @@
+---
+description: Security baseline for NEST Platform (Flask + Next.js + Supabase, financial data)
+globs:
+  - "backend/**/*.py"
+  - "frontend/**/*.ts"
+  - "frontend/**/*.tsx"
+  - "**/*.sql"
+alwaysApply: false
+---
+
+# Security Baseline — NEST Platform
+
+Deal data (issuers, dollar amounts, notes) is confidential financial information. Assume technical due diligence will read this code.
+
+## 1. Service-role / admin keys
+Never use the Supabase service-role key in user-facing code. Authenticated routes use a client scoped to the user's JWT. Service-role is for admin, migration, and background jobs only.
+
+## 2. Auth on every data route
+Every route under `backend/routes/` that reads or writes deal, contact, or counterparty data requires auth. No new unauthenticated data endpoints — the open `/api/deals` exposure is a known gap being closed, not a pattern to copy.
+
+## 3. Input validation
+Explicit validation at the boundary — Pydantic (or equivalent) in Flask routes, Zod in TypeScript. Every POST/PATCH/PUT body, query param, and path param has a schema. Reject invalid input with 422.
+
+## 4. Error responses
+Sanitize error responses to the standard envelope (`success/data/error/timestamp`). Never return raw database errors, stack traces, or internal paths.
+
+## 5. Row-level security
+RLS must enforce ownership. Never ship `USING (true)` policies; check `auth.uid()` or role claims. The current wide-open `deals_open` policy is a known gap, not a precedent.
+
+## 6. Logging
+Never log secrets, tokens, or client financial data. Structured logging only.
+
+## 7. CORS
+Explicit origins only (`nestadvisors.tech` + local dev). The current `*` is a known gap — tighten, never widen.
+
+## 8. Secrets
+Env vars only (Railway/Vercel); no hardcoded credentials. The repo carries `.env.example` only — never a real `.env`.
+
+## 9. Schema discipline
+The canonical `deals` schema is 005 (`deal_size`, `location_*`, jsonb). Never reintroduce 001 column names (`bond_face`, `state`, `market`). See ADR-0004.

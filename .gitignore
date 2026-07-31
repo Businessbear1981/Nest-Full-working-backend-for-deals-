@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+
+# Build output
+dist/
+build/
+*.bak
+
+# Env
+.env
+.env.local
+backend/.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Uploads
+backend/uploads/
+
+# External reference dumps (kept locally, not in repo)
+docs/reference/ECC-main/
+rail_push.json
+
+.vercel

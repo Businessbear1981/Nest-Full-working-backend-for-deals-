@@ -1,0 +1,705 @@
+﻿"use client";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
+import { Loader2, FolderOpen, CheckCircle2, Circle, AlertTriangle, BarChart3, Shield, Leaf, ShieldCheck, ClipboardCheck, FileText, Calculator, BookOpen, Upload } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
+import { trpc } from "@/lib/trpc";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+);
+
+function getItem(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(key);
+}
+
+const API = process.env.NEXT_PUBLIC_API_URL || "https://nest-platform-production.up.railway.app";
+
+// Maps backend document kind → frontend doc IDs that it satisfies
+const KIND_TO_DOC_IDS: Record<string, string[]> = {
+  rent_roll:           [],            // no direct match in the 30 categories (CRE-only doc)
+  operating_statement: ["d1"],        // 3-Year Audited Financials / operating statement
+  appraisal:           ["d21"],       // Appraisal (USPAP)
+  title:               ["d10"],       // Title Report / Commitment
+  insurance:           ["d27"],       // General Liability COI
+  purchase_sale:       [],            // no direct match
+  sponsor_bio:         ["d5"],        // Sponsor Personal Financial Statement
+  environmental:       ["d11"],       // Environmental Phase I
+  other:               [],
+};
+
+// ══════════════════════════════════════════════════════════════════
+// DOCUMENT VAULT — every doc needed for bond issuance
+// ══════════════════════════════════════════════════════════════════
+
+const DOC_CATEGORIES = [
+  {
+    name: "Financial", icon: BarChart3, items: [
+      { id: "d1", label: "3-Year Audited Financials", required: true },
+      { id: "d2", label: "Proforma / Operating Budget", required: true },
+      { id: "d3", label: "Tax Returns (3 years)", required: true },
+      { id: "d4", label: "Bank Statements (12 months)", required: true },
+      { id: "d5", label: "Sponsor Personal Financial Statement", required: true },
+      { id: "d6", label: "Interim Financial Statements", required: false },
+    ],
+  },
+  {
+    name: "Legal & Entity", icon: Shield, items: [
+      { id: "d7", label: "SPE Operating Agreement", required: true },
+      { id: "d8", label: "Articles of Organization", required: true },
+      { id: "d9", label: "Good Standing Certificate", required: true },
+      { id: "d10", label: "Title Report / Commitment", required: true },
+      { id: "d11", label: "Environmental Phase I", required: true },
+      { id: "d12", label: "Survey / ALTA", required: true },
+      { id: "d13", label: "Zoning Confirmation Letter", required: true },
+    ],
+  },
+  {
+    name: "Construction", icon: FolderOpen, items: [
+      { id: "d14", label: "GMP Contract", required: true },
+      { id: "d15", label: "Architect Plans (stamped)", required: true },
+      { id: "d16", label: "Geotechnical Report", required: false },
+      { id: "d17", label: "Building Permits", required: true },
+      { id: "d18", label: "Construction Timeline / Gantt", required: true },
+      { id: "d19", label: "Contractor License & Insurance", required: true },
+    ],
+  },
+  {
+    name: "Market & Feasibility", icon: Leaf, items: [
+      { id: "d20", label: "Market Feasibility Study", required: true },
+      { id: "d21", label: "Appraisal (USPAP)", required: true },
+      { id: "d22", label: "Competitive Set Analysis", required: false },
+      { id: "d23", label: "Demand / Absorption Study", required: true },
+      { id: "d24", label: "Management Agreement", required: true },
+    ],
+  },
+  {
+    name: "Insurance & Surety", icon: ShieldCheck, items: [
+      { id: "d25", label: "Surety Bond Application (Hylant)", required: true },
+      { id: "d26", label: "Builder's Risk Insurance", required: true },
+      { id: "d27", label: "General Liability COI", required: true },
+      { id: "d28", label: "D&O Insurance", required: false },
+      { id: "d29", label: "Performance Bond (if applicable)", required: false },
+      { id: "d30", label: "Payment Bond", required: false },
+    ],
+  },
+];
+
+// ══════════════════════════════════════════════════════════════════
+// PROJECT READINESS CHECKLIST — dynamic toggle
+// ══════════════════════════════════════════════════════════════════
+
+const READINESS_CHECKLIST = [
+  { id: "r1", category: "Site", label: "Site control confirmed (ownership or option)", required: true },
+  { id: "r2", category: "Site", label: "Zoning entitlements approved", required: true },
+  { id: "r3", category: "Site", label: "Utility connections confirmed", required: true },
+  { id: "r4", category: "Design", label: "Schematic design complete", required: true },
+  { id: "r5", category: "Design", label: "Design development 60%+", required: true },
+  { id: "r6", category: "Design", label: "Construction documents issued", required: false },
+  { id: "r7", category: "Financial", label: "Proforma validated by 3rd party", required: true },
+  { id: "r8", category: "Financial", label: "Sources & uses balanced", required: true },
+  { id: "r9", category: "Financial", label: "Sponsor equity committed", required: true },
+  { id: "r10", category: "Financial", label: "Interest reserve pre-funded", required: true },
+  { id: "r11", category: "Regulatory", label: "CON (Certificate of Need) obtained", required: false },
+  { id: "r12", category: "Regulatory", label: "State licensing application filed", required: true },
+  { id: "r13", category: "Regulatory", label: "Environmental clearance", required: true },
+  { id: "r14", category: "Surety", label: "Hylant submission package complete", required: true },
+  { id: "r15", category: "Surety", label: "Surety bond indicative terms received", required: true },
+  { id: "r16", category: "Surety", label: "3C analysis complete (Character, Capacity, Capital)", required: true },
+  { id: "r17", category: "Credit", label: "Credit memo drafted", required: true },
+  { id: "r18", category: "Credit", label: "Maxwell scoring complete", required: true },
+  { id: "r19", category: "Credit", label: "Stress test scenarios run", required: true },
+  { id: "r20", category: "Credit", label: "Rating agency pre-screen (if applicable)", required: false },
+];
+
+function money(val: number) {
+  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
+  return `$${val.toLocaleString()}`;
+}
+
+export default function RootsWorkspace({ dealId: dealIdProp, summaryMode }: { dealId?: string; summaryMode?: boolean }) {
+  // ── Resolve dealId: prop → URL ?deal_id= → localStorage ───────────
+  const searchParams = useSearchParams();
+  const dealId: string | undefined =
+    dealIdProp ||
+    searchParams.get("deal_id") ||
+    (typeof window !== "undefined" ? localStorage.getItem("nest_active_deal_id") ?? undefined : undefined) ||
+    undefined;
+
+  const subTabState = useState("vault");
+  const subTab = subTabState[0]; const setSubTab = subTabState[1];
+
+  // All doc statuses start as "missing"; backend fetch updates them from real uploads
+  const docStatusState = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    DOC_CATEGORIES.forEach((c) => c.items.forEach((i) => { init[i.id] = "missing"; }));
+    return init;
+  });
+  const docStatus = docStatusState[0]; const setDocStatus = docStatusState[1];
+
+  // All readiness checks start as false; backend fetch updates them from real data
+  const readinessStatusState = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    READINESS_CHECKLIST.forEach((i) => { init[i.id] = false; });
+    return init;
+  });
+  const readinessStatus = readinessStatusState[0]; const setReadinessStatus = readinessStatusState[1];
+
+  const uploadingState = useState(false);
+  const uploading = uploadingState[0]; const setUploading = uploadingState[1];
+
+  const uploadErrorState = useState<string | null>(null);
+  const uploadError = uploadErrorState[0]; const setUploadError = uploadErrorState[1];
+
+  const loadErrorState = useState<string | null>(null);
+  const loadError = loadErrorState[0]; const setLoadError = loadErrorState[1];
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Apply backend document list to local docStatus ─────────────────
+  const applyBackendDocs = useCallback((docs: Array<{ kind: string }>) => {
+    setDocStatus((prev) => {
+      const next = { ...prev };
+      docs.forEach((doc) => {
+        const ids = KIND_TO_DOC_IDS[doc.kind] ?? [];
+        ids.forEach((id) => { next[id] = "uploaded"; });
+      });
+      return next;
+    });
+  }, []);
+
+  // ── Apply backend readiness to local readinessStatus ───────────────
+  const applyBackendReadiness = useCallback((data: {
+    present?: Array<{ kind: string }>;
+    missing?: Array<{ kind: string }>;
+    score?: number;
+  }) => {
+    const presentKinds = new Set((data.present ?? []).map((p) => p.kind));
+    setReadinessStatus((prev) => {
+      const next = { ...prev };
+      if (presentKinds.has("environmental")) next["r13"] = true;
+      if (presentKinds.has("appraisal")) next["r7"] = true;
+      return next;
+    });
+  }, []);
+
+  // ── Fetch on mount: Supabase first, backend readiness second ───────
+  useEffect(() => {
+    if (!dealId) return;
+
+    // Read documents for this deal from Supabase documents table
+    supabase
+      .from("documents")
+      .select("doc_type, filename, status, storage_path")
+      .eq("deal_id", dealId)
+      .then(({ data, error }) => {
+        if (error || !data) {
+          // Fall back to backend API if Supabase read fails
+          const token = typeof window !== "undefined" ? localStorage.getItem("nest_token") : null;
+          const headers: Record<string, string> = { "Content-Type": "application/json" };
+          if (token) headers["Authorization"] = `Bearer ${token}`;
+          fetch(`${API}/api/docs?deal_id=${encodeURIComponent(dealId)}`, { headers })
+            .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
+            .then((docs: Array<{ kind: string }>) => applyBackendDocs(docs))
+            .catch(() => setLoadError("Could not load documents from server."));
+          return;
+        }
+        // Map Supabase rows (doc_type = kind) into the same shape applyBackendDocs expects
+        applyBackendDocs(data.map((row) => ({ kind: row.doc_type ?? "other" })));
+      });
+
+    // Fetch readiness from backend (non-blocking)
+    const token = typeof window !== "undefined" ? localStorage.getItem("nest_token") : null;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    fetch(`${API}/api/docs/readiness?deal_id=${encodeURIComponent(dealId)}`, { headers })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
+      .then((data) => applyBackendReadiness(data))
+      .catch(() => { /* non-blocking */ });
+  }, [dealId, applyBackendDocs, applyBackendReadiness]);
+
+  // ── File upload handler ────────────────────────────────────────────
+  const handleFileUpload = useCallback(async (files: FileList | null, docId?: string) => {
+    if (!files || !files.length || !dealId) return;
+    setUploading(true);
+    setUploadError(null);
+    const token = typeof window !== "undefined" ? localStorage.getItem("nest_token") : null;
+    try {
+      for (const file of Array.from(files)) {
+        const form = new FormData();
+        form.append("deal_id", dealId);
+        form.append("file", file);
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(`${API}/api/docs/upload`, { method: "POST", headers, body: form });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || res.statusText);
+        }
+        const doc: { kind: string; filename?: string; storage_path?: string } = await res.json();
+
+        // Write a row to Supabase documents table so the vault persists across sessions
+        await supabase.from("documents").insert({
+          deal_id: dealId,
+          doc_type: doc.kind,
+          filename: doc.filename ?? file.name,
+          storage_path: doc.storage_path ?? "",
+          status: "uploaded",
+        });
+
+        // Mark the specific doc clicked as uploaded, and any kind-matched docs
+        if (docId) {
+          setDocStatus((prev) => ({ ...prev, [docId]: "uploaded" }));
+        }
+        applyBackendDocs([doc]);
+      }
+    } catch (e: any) {
+      setUploadError(e?.message ?? "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }, [dealId, applyBackendDocs]);
+
+  const rmaMutation = trpc.ratingEsg.rmaBenchmark.useMutation();
+  const esgMutation = trpc.ratingEsg.esgScore.useMutation();
+  const ratingMutation = trpc.ratingEsg.ratingAssess.useMutation();
+  const creditMemoMutation = trpc.powerstrip.route.useMutation();
+
+  // Doc vault stats
+  const allDocs = DOC_CATEGORIES.flatMap((c) => c.items);
+  const requiredDocs = allDocs.filter((i) => i.required);
+  const uploadedRequired = requiredDocs.filter((i) => docStatus[i.id] === "uploaded").length;
+  const docReadiness = Math.round((uploadedRequired / requiredDocs.length) * 100);
+
+  // Readiness stats
+  const requiredChecks = READINESS_CHECKLIST.filter((i) => i.required);
+  const completedChecks = requiredChecks.filter((i) => readinessStatus[i.id]).length;
+  const checkReadiness = Math.round((completedChecks / requiredChecks.length) * 100);
+
+  // Overall
+  const overallReadiness = Math.round((docReadiness + checkReadiness) / 2);
+
+  const toggleCheck = (id: string) => {
+    setReadinessStatus((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  if (summaryMode) {
+    return (
+      <div className="p-4">
+        <div className="flex items-center gap-2 font-mono text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-emerald-200">
+          <FolderOpen size={14} /> Roots
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div>
+            <p className="font-mono text-[0.56rem] uppercase tracking-[0.14em] text-[#7A9A82]">Docs</p>
+            <p className="font-mono text-xl font-semibold text-white">{docReadiness}%</p>
+          </div>
+          <div>
+            <p className="font-mono text-[0.56rem] uppercase tracking-[0.14em] text-[#7A9A82]">Readiness</p>
+            <p className="font-mono text-xl font-semibold text-amber-100">{checkReadiness}%</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Hidden file input for uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        onChange={(e) => {
+          const docId = fileInputRef.current?.dataset.docId;
+          handleFileUpload(e.target.files, docId);
+          // Reset so the same file can be re-selected if needed
+          if (fileInputRef.current) fileInputRef.current.value = "";
+        }}
+      />
+
+      {/* Load / upload error banners */}
+      {loadError && (
+        <div className="rounded-xl border border-amber-300/30 bg-amber-300/8 px-4 py-2 font-mono text-[0.62rem] text-amber-200">
+          {loadError}
+        </div>
+      )}
+      {uploadError && (
+        <div className="rounded-xl border border-red-400/30 bg-red-500/8 px-4 py-2 font-mono text-[0.62rem] text-red-200">
+          Upload error: {uploadError}
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2 font-mono text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-emerald-200">
+            <FolderOpen size={17} /> Roots — Arrangement & Readiness Engine
+          </div>
+          <p className="mt-1 text-sm text-[#7A9A82]">Document vault, project readiness, surety prep, audit, feasibility, RMA spreads, credit memo — all groundwork before it becomes a bond.</p>
+        </div>
+        <div className="text-right">
+          <p className="font-mono text-[0.56rem] uppercase tracking-[0.14em] text-[#7A9A82]">Overall Readiness</p>
+          <p className={`font-mono text-2xl font-bold ${overallReadiness >= 75 ? "text-emerald-200" : overallReadiness >= 50 ? "text-amber-200" : "text-red-200"}`}>
+            {overallReadiness}%
+          </p>
+        </div>
+      </div>
+
+      <Progress value={overallReadiness} className="h-3" />
+
+      {/* Sub-tabs */}
+      <Tabs value={subTab} onValueChange={setSubTab}>
+        <TabsList className="flex w-full overflow-x-auto rounded-xl border border-white/10 bg-black/45">
+          <TabsTrigger value="vault" className="font-mono text-[0.62rem] uppercase"><FolderOpen size={12} className="mr-1" /> Doc Vault</TabsTrigger>
+          <TabsTrigger value="readiness" className="font-mono text-[0.62rem] uppercase"><ClipboardCheck size={12} className="mr-1" /> Readiness</TabsTrigger>
+          <TabsTrigger value="surety" className="font-mono text-[0.62rem] uppercase"><ShieldCheck size={12} className="mr-1" /> Surety</TabsTrigger>
+          <TabsTrigger value="rma" className="font-mono text-[0.62rem] uppercase"><BarChart3 size={12} className="mr-1" /> RMA</TabsTrigger>
+          <TabsTrigger value="credit" className="font-mono text-[0.62rem] uppercase"><Calculator size={12} className="mr-1" /> Credit Memo</TabsTrigger>
+          <TabsTrigger value="esg" className="font-mono text-[0.62rem] uppercase"><Leaf size={12} className="mr-1" /> ESG</TabsTrigger>
+        </TabsList>
+
+        {/* ── DOCUMENT VAULT ──────────────────────────────────────── */}
+        <TabsContent value="vault" className="mt-4 space-y-4">
+          <div className="flex items-center gap-4 font-mono text-[0.62rem] text-[#7A9A82]">
+            <span className="text-emerald-200">{uploadedRequired}/{requiredDocs.length} required uploaded</span>
+            <span className="text-amber-200">{allDocs.filter((i) => docStatus[i.id] === "review").length} in review</span>
+            <span className="text-red-200">{allDocs.filter((i) => i.required && docStatus[i.id] === "missing").length} required missing</span>
+          </div>
+
+          {DOC_CATEGORIES.map((cat) => {
+            const Icon = cat.icon;
+            const catUploaded = cat.items.filter((i) => docStatus[i.id] === "uploaded").length;
+            return (
+              <div key={cat.name} className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2 font-mono text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-white">
+                    <Icon size={14} className="text-emerald-300" /> {cat.name}
+                  </div>
+                  <span className="font-mono text-[0.56rem] text-[#7A9A82]">{catUploaded}/{cat.items.length}</span>
+                </div>
+                <div className="space-y-1">
+                  {cat.items.map((item) => {
+                    const st = docStatus[item.id];
+                    const isOn = st === "uploaded";
+                    const isReview = st === "review";
+                    const canUpload = dealId && !isOn;
+                    return (
+                      <button
+                        key={item.id}
+                        disabled={uploading}
+                        onClick={() => {
+                          if (canUpload && fileInputRef.current) {
+                            // Store which doc was clicked so upload handler can mark it
+                            fileInputRef.current.dataset.docId = item.id;
+                            fileInputRef.current.click();
+                          }
+                        }}
+                        className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition-all ${
+                          isOn ? "border-emerald-300/30 bg-emerald-400/8 shadow-[0_0_20px_rgba(52,211,153,0.10)]"
+                          : isReview ? "border-amber-300/25 bg-amber-300/6 shadow-[0_0_16px_rgba(251,191,36,0.08)]"
+                          : "border-white/5 bg-white/[0.015]"
+                        } hover:border-white/20 disabled:opacity-60`}>
+                        <div className="flex items-center gap-3">
+                          {isOn ? <CheckCircle2 size={16} className="text-emerald-400 drop-shadow-[0_0_6px_rgba(52,211,153,0.5)]" />
+                           : isReview ? <AlertTriangle size={16} className="text-amber-300 drop-shadow-[0_0_6px_rgba(251,191,36,0.5)]" />
+                           : <Circle size={16} className="text-[#7A9A82]" />}
+                          <span className={`font-mono text-sm ${isOn ? "text-white" : "text-[#7A9A82]"}`}>{item.label}</span>
+                          {item.required && st === "missing" && (
+                            <span className="rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 font-mono text-[0.52rem] uppercase text-red-200">required</span>
+                          )}
+                        </div>
+                        <span className={`rounded-full border px-2 py-0.5 font-mono text-[0.52rem] uppercase ${
+                          isOn ? "border-emerald-300/30 bg-emerald-400/10 text-emerald-200"
+                          : isReview ? "border-amber-300/30 bg-amber-300/10 text-amber-200"
+                          : "border-[#1E4A2E] text-[#7A9A82]"
+                        }`}>{isOn ? "Uploaded" : isReview ? "Review" : canUpload ? "Upload" : "Missing"}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </TabsContent>
+
+        {/* ── PROJECT READINESS ────────────────────────────────────── */}
+        <TabsContent value="readiness" className="mt-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="font-mono text-[0.62rem] text-[#7A9A82]">{completedChecks}/{requiredChecks.length} required items complete</p>
+            <span className={`font-mono text-lg font-bold ${checkReadiness >= 75 ? "text-emerald-200" : "text-amber-200"}`}>{checkReadiness}%</span>
+          </div>
+          <Progress value={checkReadiness} className="h-2" />
+
+          {Array.from(new Set(READINESS_CHECKLIST.map((i) => i.category))).map((cat) => (
+            <div key={cat}>
+              <h4 className="mb-2 font-mono text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-[#7A9A82]">{cat}</h4>
+              <div className="space-y-1">
+                {READINESS_CHECKLIST.filter((i) => i.category === cat).map((item) => {
+                  const done = readinessStatus[item.id];
+                  return (
+                    <button key={item.id} onClick={() => toggleCheck(item.id)}
+                      className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition-all ${
+                        done ? "border-emerald-300/30 bg-emerald-400/8 shadow-[0_0_16px_rgba(52,211,153,0.08)]"
+                        : "border-white/5 bg-white/[0.015]"
+                      } hover:border-white/20`}>
+                      <div className="flex items-center gap-3">
+                        {done ? <CheckCircle2 size={16} className="text-emerald-400 drop-shadow-[0_0_6px_rgba(52,211,153,0.5)]" />
+                         : <Circle size={16} className="text-[#7A9A82]" />}
+                        <span className={`font-mono text-sm ${done ? "text-white" : "text-[#7A9A82]"}`}>{item.label}</span>
+                      </div>
+                      {item.required && !done && (
+                        <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 font-mono text-[0.52rem] uppercase text-amber-200">required</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </TabsContent>
+
+        {/* ── SURETY READINESS ────────────────────────────────────── */}
+        <TabsContent value="surety" className="mt-4 space-y-4">
+          <SuretyReadinessPanel ratingMutation={ratingMutation} />
+        </TabsContent>
+
+        {/* ── RMA SPREADS ─────────────────────────────────────────── */}
+        <TabsContent value="rma" className="mt-4 space-y-4">
+          <RMAPanel rmaMutation={rmaMutation} />
+        </TabsContent>
+
+        {/* ── CREDIT MEMO ─────────────────────────────────────────── */}
+        <TabsContent value="credit" className="mt-4 space-y-4">
+          <CreditMemoPanel creditMemoMutation={creditMemoMutation} ratingMutation={ratingMutation} />
+        </TabsContent>
+
+        {/* ── ESG ─────────────────────────────────────────────────── */}
+        <TabsContent value="esg" className="mt-4 space-y-4">
+          <ESGPanel esgMutation={esgMutation} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SURETY READINESS
+// ══════════════════════════════════════════════════════════════════
+
+function SuretyReadinessPanel({ ratingMutation }: { ratingMutation: any }) {
+  const HYLANT_REQS = [
+    { id: "h1", label: "Appraisal (USPAP compliant)", status: "complete" },
+    { id: "h2", label: "Phase I Environmental", status: "complete" },
+    { id: "h3", label: "GMP Contract", status: "complete" },
+    { id: "h4", label: "Sponsor Financial Statements (3yr)", status: "pending" },
+    { id: "h5", label: "Proforma (36-month NOI ramp)", status: "complete" },
+    { id: "h6", label: "Feasibility Study", status: "pending" },
+    { id: "h7", label: "3C Analysis (Character, Capacity, Capital)", status: "pending" },
+  ];
+
+  const complete = HYLANT_REQS.filter((r) => r.status === "complete").length;
+  const pct = Math.round((complete / HYLANT_REQS.length) * 100);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 font-mono text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-amber-200">
+          <ShieldCheck size={14} /> Hylant Surety Submission Readiness
+        </div>
+        <span className={`font-mono text-lg font-bold ${pct >= 75 ? "text-emerald-200" : "text-amber-200"}`}>{pct}%</span>
+      </div>
+      <Progress value={pct} className="h-2" />
+
+      <div className="rounded-2xl border border-amber-300/25 bg-black/35 p-4 space-y-1">
+        {HYLANT_REQS.map((req) => (
+          <div key={req.id} className={`flex items-center justify-between rounded-xl border px-4 py-3 ${
+            req.status === "complete"
+              ? "border-emerald-300/25 bg-emerald-400/6 shadow-[0_0_14px_rgba(52,211,153,0.08)]"
+              : "border-white/5 bg-white/[0.015]"
+          }`}>
+            <div className="flex items-center gap-3">
+              {req.status === "complete"
+                ? <CheckCircle2 size={16} className="text-emerald-400 drop-shadow-[0_0_6px_rgba(52,211,153,0.5)]" />
+                : <Circle size={16} className="text-[#7A9A82]" />}
+              <span className={`font-mono text-sm ${req.status === "complete" ? "text-white" : "text-[#7A9A82]"}`}>{req.label}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: "Provider", value: "Hylant Insurance", sub: "A+ rated" },
+          { label: "Premium", value: "8.5%", sub: "Performance surety" },
+          { label: "Max Bond", value: "$500M", sub: "Capacity" },
+        ].map((m) => (
+          <div key={m.label} className="rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-center">
+            <p className="font-mono text-[0.56rem] uppercase text-[#7A9A82]">{m.label}</p>
+            <p className="font-mono text-lg font-bold text-amber-100">{m.value}</p>
+            <p className="font-mono text-[0.52rem] text-[#7A9A82]">{m.sub}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// RMA SPREADS
+// ══════════════════════════════════════════════════════════════════
+
+function RMAPanel({ rmaMutation }: { rmaMutation: any }) {
+  const naicsState = useState("6232");
+  const naics = naicsState[0]; const setNaics = naicsState[1];
+  const comparison = (rmaMutation.data as any)?.comparison;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-emerald-200">RMA Industry Benchmark Spreads</h3>
+        <div className="flex gap-2">
+          <select value={naics} onChange={(e) => setNaics(e.target.value)} className="rounded-xl border border-emerald-300/20 bg-black/45 px-3 py-2 font-mono text-sm text-[#EDE8DC] outline-none">
+            <option value="6232">Assisted Living</option>
+            <option value="6231">Nursing Care</option>
+            <option value="5311">Property Mgmt</option>
+          </select>
+          <Button onClick={() => rmaMutation.mutate({ naics })} disabled={rmaMutation.isPending}
+            className="rounded-xl border border-emerald-300/35 bg-emerald-400/12 px-4 py-2 font-mono text-[0.68rem] font-semibold uppercase text-emerald-100 hover:bg-emerald-400/20">
+            {rmaMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Compare"}
+          </Button>
+        </div>
+      </div>
+      {comparison && (
+        <div className="space-y-1">
+          {Object.entries(comparison).map(([metric, data]: [string, any]) => (
+            <div key={metric} className={`flex items-center justify-between rounded-xl border px-4 py-3 ${
+              data.status === "above" ? "border-emerald-300/25 bg-emerald-400/6 shadow-[0_0_14px_rgba(52,211,153,0.08)]" : "border-red-400/20 bg-red-500/5"
+            }`}>
+              <span className="font-mono text-sm text-white">{metric.replace(/_/g, " ")}</span>
+              <div className="flex items-center gap-4 font-mono text-sm">
+                <span className="text-[#7A9A82]">Bench: {data.benchmark}</span>
+                <span className={data.status === "above" ? "text-emerald-200" : "text-red-200"}>Actual: {data.actual}</span>
+                <span className={`font-semibold ${data.delta >= 0 ? "text-emerald-300" : "text-red-300"}`}>{data.delta >= 0 ? "+" : ""}{data.delta}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// CREDIT MEMO
+// ══════════════════════════════════════════════════════════════════
+
+function CreditMemoPanel({ creditMemoMutation, ratingMutation }: { creditMemoMutation: any; ratingMutation: any }) {
+  const runCreditMemo = () => {
+    // Run rating first
+    ratingMutation.mutate({
+      stabilized_noi_usd: 12_000_000, a_tranche_usd: 112_500_000, b_tranche_usd: 10_500_000,
+      a_coupon_pct: 6.5, b_coupon_pct: 11, total_project_cost_usd: 150_000_000,
+      appraised_value_usd: 180_000_000, sponsor_equity_usd: 37_500_000, ebitda_usd: 10_200_000,
+    });
+    // Generate memo
+    creditMemoMutation.mutate({
+      taskType: "credit_memo",
+      prompt: `Generate a full credit memo for a NEST dual-tranche senior living bond:
+      - $150M total project cost, $112.5M Series A (6.5%), $10.5M Series B (11%)
+      - Stabilized NOI: $12M, DSCR: 1.64x, LTV: 68%, Obligor grade: BBB+
+      - Hylant surety wrap, Jacaranda Trace PLOM as structural template
+      - Include: Executive Summary, Credit Strengths, Risk Factors, Financial Analysis, Structure, Recommendation
+      - Jimmy Lee tone. Lead with the recommendation.`,
+    });
+  };
+
+  const rating = (ratingMutation.data ?? {}) as any;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-amber-200">Credit Memo & Rating</h3>
+        <Button onClick={runCreditMemo} disabled={creditMemoMutation.isPending}
+          className="rounded-xl border border-amber-300/35 bg-amber-300/12 px-4 py-2 font-mono text-[0.68rem] font-semibold uppercase text-amber-100 hover:bg-amber-300/20">
+          {creditMemoMutation.isPending ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Generating...</> : <><FileText className="mr-2 h-3.5 w-3.5" /> Generate Credit Memo</>}
+        </Button>
+      </div>
+
+      {rating && (
+        <div className="grid grid-cols-4 gap-3">
+          {[
+            { label: "Rating", value: rating.indicative_rating, tone: "text-amber-100" },
+            { label: "DSCR", value: `${rating.credit_metrics?.dscr}x`, tone: "text-emerald-200" },
+            { label: "LTV", value: `${rating.credit_metrics?.ltv_pct}%`, tone: rating.credit_metrics?.ltv_pct > 75 ? "text-red-200" : "text-amber-100" },
+            { label: "Score", value: `${rating.deal_score}/100`, tone: "text-white" },
+          ].map((m) => (
+            <div key={m.label} className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center">
+              <p className="font-mono text-[0.56rem] uppercase text-[#7A9A82]">{m.label}</p>
+              <p className={`font-mono text-xl font-bold ${m.tone}`}>{m.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {creditMemoMutation.data && (
+        <div className="rounded-2xl border border-amber-300/20 bg-black/35 p-5">
+          <div className="flex items-center gap-2 font-mono text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-amber-200">
+            <BookOpen size={14} /> AI Credit Memo
+          </div>
+          <div className="mt-3 whitespace-pre-wrap font-mono text-sm leading-7 text-[#EDE8DC]">
+            {(creditMemoMutation.data as any).content}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ESG
+// ══════════════════════════════════════════════════════════════════
+
+function ESGPanel({ esgMutation }: { esgMutation: any }) {
+  const data = (esgMutation.data ?? {}) as any;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-[#E8C87A]">ESG Scoring & Green Bond Eligibility</h3>
+        <Button onClick={() => esgMutation.mutate({ scores: {} })} disabled={esgMutation.isPending}
+          className="rounded-xl border border-[#C4A048]/35 bg-[#C4A048]/12 px-4 py-2 font-mono text-[0.68rem] font-semibold uppercase text-[#EDE8DC] hover:bg-[#C4A048]/20">
+          {esgMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Run ESG Score"}
+        </Button>
+      </div>
+      {data && (
+        <>
+          <div className="grid grid-cols-4 gap-3">
+            <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center">
+              <p className="font-mono text-[0.56rem] uppercase text-[#7A9A82]">Composite</p>
+              <p className="font-mono text-2xl font-bold text-white">{data.composite_score}</p>
+              <p className="font-mono text-[0.52rem] text-[#7A9A82]">Grade: {data.esg_grade}</p>
+            </div>
+            {["environmental", "social", "governance"].map((pillar) => {
+              const colors: Record<string, string> = { environmental: "text-emerald-200 border-emerald-300/25 bg-emerald-400/8", social: "text-[#E8C87A] border-[#C4A048]/25 bg-[#C4A048]/8", governance: "text-amber-200 border-amber-300/25 bg-amber-300/8" };
+              return (
+                <div key={pillar} className={`rounded-xl border p-3 text-center ${colors[pillar]}`}>
+                  <p className="font-mono text-[0.56rem] uppercase text-[#7A9A82]">{pillar}</p>
+                  <p className="font-mono text-2xl font-bold">{data.pillar_scores?.[pillar]?.score ?? "—"}</p>
+                </div>
+              );
+            })}
+          </div>
+          <div className={`rounded-xl border p-3 text-center ${data.bond_impact?.includes("Green") ? "border-emerald-300/30 bg-emerald-400/8" : "border-white/10 bg-white/[0.035]"}`}>
+            <p className={`font-mono text-sm font-semibold ${data.bond_impact?.includes("Green") ? "text-emerald-200" : "text-[#7A9A82]"}`}>{data.bond_impact}</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
