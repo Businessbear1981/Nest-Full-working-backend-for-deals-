@@ -10,6 +10,19 @@ try:
 except ImportError:
     _db = None
 
+from services.rating_benchmarks import STRUCTURING_CRITERIA, SECTOR_SCORING_OVERRIDES, MOODYS_FINANCIAL_METRICS
+
+# Real published thresholds, not independently-invented cutoffs — pulled
+# directly from rating_benchmarks so credit-risk scoring here can't drift
+# from what architect/maxwell_engine use for the same deal.
+_DSCR_IG_FLOOR = STRUCTURING_CRITERIA["dscr_by_rating"]["BBB"]["min"]    # 1.20
+_DSCR_A_FLOOR = STRUCTURING_CRITERIA["dscr_by_rating"]["A"]["min"]      # 1.50
+_LTV_THRESHOLDS = SECTOR_SCORING_OVERRIDES["real_estate"]["adjustments"]["ltv_thresholds"]
+_LTV_A_CEILING = _LTV_THRESHOLDS["A"] * 100      # 65%
+_LTV_BAA_CEILING = _LTV_THRESHOLDS["Baa"] * 100  # 70%
+_DEBT_EBITDA_BAA_MAX = MOODYS_FINANCIAL_METRICS["debt_to_ebitda"]["Baa"]["max"]  # 4.5x
+_DEBT_EBITDA_BA_MAX = MOODYS_FINANCIAL_METRICS["debt_to_ebitda"]["Ba"]["max"]    # 6.0x
+
 
 # ── Risk Dimension Weights ──────────────────────────────────────
 
@@ -171,25 +184,25 @@ class SentinelAgent:
         factors = []
 
         dscr = deal.get("dscr", 1.5)
-        if dscr < 1.2:
+        if dscr < _DSCR_IG_FLOOR:
             score += 35
-            factors.append(f"DSCR {dscr:.2f}x — below minimum")
-        elif dscr < 1.5:
+            factors.append(f"DSCR {dscr:.2f}x — below {_DSCR_IG_FLOOR}x BBB investment-grade floor")
+        elif dscr < _DSCR_A_FLOOR:
             score += 15
-            factors.append(f"DSCR {dscr:.2f}x — watch level")
+            factors.append(f"DSCR {dscr:.2f}x — below {_DSCR_A_FLOOR}x A-grade floor, watch level")
 
         ltv = deal.get("ltv", 65)
-        if ltv > 75:
+        if ltv > _LTV_BAA_CEILING:
             score += 25
-            factors.append(f"LTV {ltv}% — exceeds comfort")
-        elif ltv > 65:
+            factors.append(f"LTV {ltv}% — exceeds {_LTV_BAA_CEILING:.0f}% Baa ceiling")
+        elif ltv > _LTV_A_CEILING:
             score += 10
 
         d_ebitda = deal.get("debt_to_ebitda", 5.0)
-        if d_ebitda > 7.5:
+        if d_ebitda > _DEBT_EBITDA_BA_MAX:
             score += 20
-            factors.append(f"D/EBITDA {d_ebitda:.1f}x — critical leverage")
-        elif d_ebitda > 5.5:
+            factors.append(f"D/EBITDA {d_ebitda:.1f}x — exceeds {_DEBT_EBITDA_BA_MAX}x Moody's Ba ceiling")
+        elif d_ebitda > _DEBT_EBITDA_BAA_MAX:
             score += 10
 
         return {"score": min(100, max(0, score)), "level": _risk_level(score), "factors": factors}

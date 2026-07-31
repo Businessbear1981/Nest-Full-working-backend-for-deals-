@@ -11,6 +11,7 @@ Algorithm:
 """
 from services.core import CreditEngine, SuretyEngine
 from engines.maxwell_engine import score_deal, SCORE_MAP
+from services.rating_benchmarks import get_structuring_targets
 from datetime import datetime
 
 credit = CreditEngine()
@@ -43,6 +44,13 @@ def generate_candidates(deal: dict, target_rating: str = "A") -> dict:
     baseline_numeric = SCORE_MAP.get(baseline_rating, 9)
     target_numeric = SCORE_MAP.get(target_rating.replace("+", "1").replace("-", "3"), 6)
     gap = baseline_numeric - target_numeric
+
+    # Real structuring targets (min DSCR, min equity, covenant package, call
+    # protection norms) for the requested target rating — pulled from
+    # rating_benchmarks instead of candidates being judged on notch-count
+    # alone. Lets a candidate be flagged as "notch gap closed" but still
+    # short of the DSCR/equity a rating committee would actually require.
+    structuring_targets = get_structuring_targets(target_rating)
 
     # Base credit metrics
     metrics = credit.compute(deal)
@@ -104,6 +112,13 @@ def generate_candidates(deal: dict, target_rating: str = "A") -> dict:
         "surety_required": True,
     })
 
+    # "achieves_target" above only measures whether structural levers close
+    # the notch gap — it says nothing about whether the deal's actual DSCR
+    # clears the real minimum a rating committee would require at that
+    # rating. Surface that check explicitly using rating_benchmarks.
+    deal_dscr = metrics.get("dscr", 0)
+    meets_min_dscr = deal_dscr >= structuring_targets["min_dscr"]
+
     return {
         "deal_id": deal.get("id", ""),
         "baseline_rating": baseline_rating,
@@ -112,5 +127,8 @@ def generate_candidates(deal: dict, target_rating: str = "A") -> dict:
         "candidates": candidates,
         "structural_levers_available": STRUCTURAL_LEVERS,
         "recommendation": candidates[0]["name"] if candidates[0]["achieves_target"] else candidates[1]["name"],
+        "structuring_targets": structuring_targets,
+        "deal_dscr": deal_dscr,
+        "meets_min_dscr_for_target": meets_min_dscr,
         "generated_at": datetime.utcnow().isoformat(),
     }

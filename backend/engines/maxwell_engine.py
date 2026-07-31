@@ -14,8 +14,24 @@ Methodology configs:
 from datetime import datetime
 from typing import Dict, List, Optional
 from services.core import CreditEngine, JPM
+from services.rating_benchmarks import (
+    STRUCTURING_CRITERIA,
+    SECTOR_SCORING_OVERRIDES,
+    score_sp_financial_risk,
+)
 
 credit = CreditEngine()
+
+# Real DSCR-by-rating floors (STRUCTURING_CRITERIA) mapped onto Moody's
+# lettered tiers actually used by _dscr_to_score below.
+_DSCR_RATING_ORDER = ["AAA", "AA", "A", "BBB", "BB", "B"]
+_DSCR_RATING_TO_NUMERIC = {"AAA": 1, "AA": 3, "A": 6, "BBB": 9, "BB": 12, "B": 15}
+
+# Real Estate LTV-by-rating ceilings (SECTOR_SCORING_OVERRIDES) — the only
+# LTV benchmark table rating_benchmarks actually publishes.
+_LTV_THRESHOLDS = SECTOR_SCORING_OVERRIDES["real_estate"]["adjustments"]["ltv_thresholds"]
+_LTV_RATING_ORDER = ["Aaa", "Aa", "A", "Baa", "Ba", "B"]
+_LTV_RATING_TO_NUMERIC = {"Aaa": 1, "Aa": 3, "A": 6, "Baa": 9, "Ba": 12, "B": 15}
 
 # ── Moody's Generic Project Finance Factor Weights ───────────
 MOODYS_GENERIC_PF = {
@@ -65,23 +81,24 @@ def _numeric_to_rating(score: float) -> str:
 
 
 def _dscr_to_score(dscr: float) -> int:
-    """Map DSCR to Moody's factor score."""
-    if dscr >= 2.0: return 5   # A2
-    if dscr >= 1.75: return 7  # A3
-    if dscr >= 1.5: return 9   # Baa2
-    if dscr >= 1.25: return 11 # Ba1
-    if dscr >= 1.0: return 14  # B1
-    return 17                  # Caa1
+    """Map DSCR to Moody's factor score using the real DSCR-by-rating
+    floors published in rating_benchmarks.STRUCTURING_CRITERIA, instead of
+    independently-invented cutoffs."""
+    for rating in _DSCR_RATING_ORDER:
+        if dscr >= STRUCTURING_CRITERIA["dscr_by_rating"][rating]["min"]:
+            return _DSCR_RATING_TO_NUMERIC[rating]
+    return 17  # below the B floor — Caa1
 
 
 def _ltv_to_score(ltv: float) -> int:
-    """Map LTV to factor score."""
-    if ltv <= 55: return 5
-    if ltv <= 65: return 7
-    if ltv <= 70: return 9
-    if ltv <= 75: return 11
-    if ltv <= 80: return 14
-    return 17
+    """Map LTV to factor score using the real estate LTV-by-rating ceilings
+    published in rating_benchmarks.SECTOR_SCORING_OVERRIDES, instead of
+    independently-invented cutoffs."""
+    ltv_pct = ltv  # already expressed as a percentage (e.g. 65, not 0.65)
+    for rating in _LTV_RATING_ORDER:
+        if ltv_pct <= _LTV_THRESHOLDS[rating] * 100:
+            return _LTV_RATING_TO_NUMERIC[rating]
+    return 17  # exceeds the B ceiling
 
 
 def score_deal(deal: dict, methodology: str = "moodys_generic_pf") -> dict:
@@ -147,6 +164,17 @@ def score_deal(deal: dict, methodology: str = "moodys_generic_pf") -> dict:
     final_score = max(1, min(19, round(weighted_score + notch_adj)))
     indicative = _numeric_to_rating(final_score)
 
+    # Real S&P cross-check via rating_benchmarks — sector-specific DSCR/LTV
+    # scoring (SECTOR_SCORING_OVERRIDES) when a sector is known, standard
+    # corporate FFO/Debt + Debt/EBITDA scoring otherwise. Independent of the
+    # Moody's PF factor decomposition above, so a rating committee can see
+    # where the two agencies' methodologies agree or diverge on this deal.
+    sp_financial_risk = score_sp_financial_risk({
+        "dscr": dscr,
+        "ltv": ltv,
+        "sector": deal.get("sector", "real_estate"),
+    })
+
     # S&P weak-link (for construction deals)
     construction_sacp = None
     operations_sacp = None
@@ -173,4 +201,5 @@ def score_deal(deal: dict, methodology: str = "moodys_generic_pf") -> dict:
         "confidence_band": f"{_numeric_to_rating(max(1, final_score - 1))} to {_numeric_to_rating(min(19, final_score + 1))}",
         "jpm_obligor_grade": obligor_grade,
         "jpm_metrics": metrics,
+        "sp_financial_risk": sp_financial_risk,
     }
