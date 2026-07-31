@@ -2,7 +2,7 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from services.bond_type_engine import generate_all_bond_options, BondType
+from services.bond_type_engine import generate_all_bond_options, BondType, PAR_VALUES
 
 
 TAX_EXEMPT_TYPES = {
@@ -101,3 +101,39 @@ class TestBanAndMezzanineReachability:
         blended DSCR at/above 1.5x — the LTV gap is what drives it."""
         types = self._bond_types_for(dscr=1.55, ltv=76, bond_face=100_000_000)
         assert BondType.MEZZANINE.value in types
+
+
+class TestParSizing:
+    """Ticket 3: par sizing must reflect the actual requested amount, not
+    just snap to the fixed 25/50/75/100/150/200/250/500M ladder.
+
+    Regression for the bug where a requested amount below the ladder's
+    floor ($25M) — like the real $10.0M bank-qualified size that saved
+    ~$470K on 2027A — produced zero band matches and fell through to
+    whichever ladder rung happened to survive the 0.40x-2.50x filter.
+    """
+
+    def _par_values_for(self, bond_face: float) -> set:
+        deal = {
+            "noi": 800_000, "dscr": 1.6, "ltv": 65,
+            "bond_face": bond_face, "naics_code": "9999",
+            "borrower_type": "governmental",
+        }
+        result = generate_all_bond_options(deal)
+        return {opt["par_value"] for opt in result["all_options"]}
+
+    def test_10m_bank_qualified_size_is_producible(self):
+        assert 10_000_000 in self._par_values_for(10_000_000)
+
+    def test_small_request_does_not_snap_to_ladder_floor(self):
+        pars = self._par_values_for(10_000_000)
+        assert all(p <= 25_000_000 for p in pars if p != 25_000_000) or len(pars) > 1
+        assert min(pars) < 25_000_000
+
+    def test_no_requested_amount_falls_back_to_standard_ladder(self):
+        assert self._par_values_for(0) == set(PAR_VALUES)
+
+    def test_large_request_still_bounded_reasonably(self):
+        pars = self._par_values_for(200_000_000)
+        assert 200_000_000 in pars
+        assert all(80_000_000 <= p <= 500_000_000 for p in pars)

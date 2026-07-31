@@ -199,6 +199,26 @@ PAR_VALUES = [
     150_000_000, 200_000_000, 250_000_000, 500_000_000,
 ]
 
+# Bands checked around the actual requested amount, e.g. $10.0M bank-qualified.
+# The old approach filtered the fixed PAR_VALUES ladder down to a band around
+# bond_face — but for any request below the ladder's floor ($25M), that band
+# excluded every rung, so nothing sized under $25M (like a real $10.0M BQ
+# issue) could ever be produced. Now the candidates are generated from the
+# requested amount itself.
+_PAR_BANDS = [0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15]
+
+
+def _par_candidates(bond_face: float) -> list[float]:
+    """Par values to price: bands around the actual requested amount when one
+    is given, plus the standard ladder for comparison; the standard ladder
+    alone when no amount was requested."""
+    if bond_face <= 0:
+        return PAR_VALUES
+
+    candidates = {round(bond_face * b / 25_000) * 25_000 for b in _PAR_BANDS}
+    candidates |= {p for p in PAR_VALUES if bond_face * 0.40 <= p <= bond_face * 2.50}
+    return sorted(candidates)
+
 
 def generate_all_bond_options(deal_data: dict, weights: dict | None = None) -> dict:
     """
@@ -243,17 +263,14 @@ def generate_all_bond_options(deal_data: dict, weights: dict | None = None) -> d
         eligible.add(BondType.MEZZANINE)
 
     options = []
+    par_candidates = _par_candidates(bond_face)
 
     for bt in eligible:
         for at in AmortizationType:
             if at == AmortizationType.BULLET and bond_face > 100_000_000:
                 continue
 
-            for par in PAR_VALUES:
-                if bond_face > 0:
-                    if par < bond_face * 0.40 or par > bond_face * 2.50:
-                        continue
-
+            for par in par_candidates:
                 mat_yrs  = 5 if bt == BondType.BAN else (30 if at == AmortizationType.BULLET else 25)
                 coupon   = calculate_coupon(bt, at, dscr, ltv, is_green)
                 schedule = generate_amortization_schedule(par, coupon, mat_yrs, at, noi, 1.25)
@@ -271,7 +288,7 @@ def generate_all_bond_options(deal_data: dict, weights: dict | None = None) -> d
                     "bond_type":           bt.value,
                     "amortization":        at.value,
                     "par_value":           par,
-                    "par_label":           f"${par / 1_000_000:.0f}M",
+                    "par_label":           f"${par / 1_000_000:g}M",
                     "coupon_pct":          coupon,
                     "maturity_years":      mat_yrs,
                     "dscr_yr1":            round(yr1_dscr, 3) if yr1_dscr else dscr,
