@@ -1,12 +1,17 @@
 """
 NEST Phase-Tranche Bond Structure Engine.
 One construction project = multiple phase bonds.
-Each phase has its own tranche, timeline, rate, call/put.
-More phases = more arrangement fees = better NEST economics.
+Each phase has its own tranche, timeline, rate, call/put, and security
+package matched to that construction stage's actual risk profile.
 Deleverage as phases complete = lower risk profile over time.
 """
 from datetime import datetime
 
+# NOTE: these figures are inconsistent with the 3.625% blended success fee
+# used elsewhere in client-facing deal documents. Not reconciled here —
+# that's a product decision (are phase bonds deliberately a different fee
+# product, or should this match the blended figure?), not a code fix.
+# Flag for Sean/Kevin before this schedule is ever quoted to a client.
 NEST_ARRANGEMENT_FEE_PCT = 1.5
 NEST_ROLL_FEE_PCT = 0.50
 
@@ -159,8 +164,28 @@ class PhaseBondEngine:
                 "single_bond_fee_usd": single_bond_fee,
                 "phase_bond_premium_usd": phase_bond_premium,
                 "premium_pct_over_single": round(phase_bond_premium / single_bond_fee * 100, 1) if single_bond_fee else 0,
-                "why_phase_bonds": "8 arrangement fees + 8 roll fees vs 1 arrangement fee. Phase bonds generate 2-3x more fee income for NEST.",
+                # Internal note on NEST's own economics — not a client-facing
+                # justification. See why_phase_bonds below for that.
+                "internal_note": "Phase structure carries more arrangement/roll fee events than a single bond; premium above the single-bond fee shown as phase_bond_premium_usd.",
             },
+            # Client-facing rationale: the structure's real merits, not NEST's
+            # fee capture. Grounded in this engine's own data — rate_spread_bps
+            # tightens from 150bps (soft_costs) to 0bps (completion_opening) as
+            # security improves phase over phase, each phase carries its own
+            # call/put window sized to that stage's actual timeline instead of
+            # one uniform schedule for the whole term, and deleverage_schedule
+            # shows exposure declining as phases complete and roll off rather
+            # than a single bond holding peak exposure risk for the full term.
+            "why_phase_bonds": (
+                "Each phase is priced and structured to its own risk profile instead of "
+                "one blended rate for the entire project. Early phases (soft costs, site "
+                "prep) carry a real premium for pre-completion risk; later phases price "
+                "tighter as security improves — culminating at the completed building's "
+                "first mortgage. Each phase also gets its own call/put window matched to "
+                "that stage's real timeline, and outstanding exposure deleverages as "
+                "phases complete and roll off, rather than one bond carrying peak "
+                "construction-risk exposure for the full term."
+            ),
             "deleverage_schedule": self.model_deleverage(phases),
         }
 
@@ -271,7 +296,10 @@ class PhaseBondEngine:
             "single_bond_alternative_fee_usd": single_bond_fee,
             "incremental_revenue_usd": total_phase_fees - single_bond_fee,
             "fee_multiple_vs_single": round(total_phase_fees / single_bond_fee, 2) if single_bond_fee else 0,
-            "explanation": "Phase bonds generate arrangement + roll fees on each tranche. 8 phases x (1.5% arrangement + 0.5% roll) vs single 1.5% on total. NEST earns 2-3x more.",
+            # Internal economics note, not a client-facing justification for
+            # the structure — see PhaseBondEngine.structure_phase_bonds()'s
+            # why_phase_bonds field for the real, client-appropriate rationale.
+            "internal_note": "Phase bonds generate arrangement + roll fees on each tranche: 8 phases x (1.5% arrangement + 0.5% roll) vs a single 1.5% arrangement fee on total.",
         }
 
 
