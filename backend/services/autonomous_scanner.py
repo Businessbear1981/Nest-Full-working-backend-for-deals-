@@ -129,12 +129,11 @@ class AutonomousScanner:
             results["findings"].append(analysis)
             self._findings.append(analysis)
 
-        # 4. Feed new signals into convergence engine
+        # 4. Feed new signals into convergence engine — these are real,
+        # EDGAR-sourced signals, tagged as such by add_signals().
         if self._convergence and edgar_signals:
-            for sig in edgar_signals:
-                self._convergence._signals.append(sig)
-            self._convergence._scan_for_convergence()
-            new_heat = len(self._convergence._heat_events)
+            self._convergence.add_signals(edgar_signals)
+            new_heat = len(self._convergence.get_heat_events())
             results["heat_events_after_scan"] = new_heat
 
         self._last_scan = _now()

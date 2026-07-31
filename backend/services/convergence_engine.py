@@ -4,8 +4,16 @@ Convergence Engine — Multi-Signal M&A Target Detection.
 Watches for 2-3 signals converging on the same entity within a time window.
 Single signals = noise. Convergence = a deal.
 
-Runs autonomously. No human input required. Surfaces HEAT events
-when signal clusters are detected.
+Detects convergence over whatever signals it's given. Real signals arrive
+via AutonomousScanner, which pulls from EDGAR/FRED and calls
+add_signals()/re-scans this engine — see services/autonomous_scanner.py.
+This engine holds no real data source of its own.
+
+Demo data (four fabricated entities, fixed random seed) is available via
+seed_demo=True for showcase/empty-state use only — every demo signal and
+every HEAT event derived solely from demo signals is tagged is_demo=True
+so it can never be mistaken for a real detection. Production instances
+(see app.py) do NOT seed demo data by default.
 """
 
 from __future__ import annotations
@@ -144,42 +152,61 @@ class ConvergenceEngine:
     No human input required — runs autonomously.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, seed_demo: bool = False) -> None:
         self._signals: list[dict[str, Any]] = []
         self._heat_events: list[dict[str, Any]] = []
-        self._seed_demo_signals()
-        self._scan_for_convergence()
+        if seed_demo:
+            self._seed_demo_signals()
+            self._scan_for_convergence()
+
+    def add_signals(self, signals: list[dict[str, Any]], rescan: bool = True) -> None:
+        """Feed real signals in (e.g. from AutonomousScanner's EDGAR pull).
+
+        Every signal added this way is real by construction — callers must
+        not route demo/synthetic data through this method.
+        """
+        for sig in signals:
+            sig.setdefault("is_demo", False)
+        self._signals.extend(signals)
+        if rescan:
+            self._scan_for_convergence()
 
     def _seed_demo_signals(self) -> None:
-        """Generate realistic demo signals that produce convergence events."""
+        """Fabricated demo signals for showcase/empty-state use only.
+
+        Every entity here is invented — Meridian Development Partners,
+        1400 Maritime LLC, Cascade Holdings, and Sierra Vista Development
+        are not real companies. Every signal is tagged is_demo=True so it
+        can never be mistaken for a real detection downstream.
+        """
         rng = random.Random(42)
 
         # Cluster 1: Project Assembly in San Jose
         self._signals.extend([
-            {"id": "sig-001", "type": "llc_formation", "entity": "Meridian Development Partners LLC", "location": "San Jose, CA", "date": _ts(12), "details": "New LLC formed in CA — registered agent: Greenberg Traurig LLP", "state": "CA"},
-            {"id": "sig-002", "type": "land_purchase", "entity": "Meridian Development Partners LLC", "location": "San Jose, CA", "date": _ts(8), "details": "4.2 acre parcel acquired — 200 Park Ave, San Jose — $18.4M deed recorded", "state": "CA"},
-            {"id": "sig-003", "type": "equity_raise", "entity": "Meridian Development Partners LLC", "location": "San Jose, CA", "date": _ts(5), "details": "SEC Form D filed — $42M equity raise — Rule 506(c) — accredited investors", "state": "CA"},
+            {"id": "sig-001", "type": "llc_formation", "entity": "Meridian Development Partners LLC", "location": "San Jose, CA", "date": _ts(12), "details": "New LLC formed in CA — registered agent: Greenberg Traurig LLP", "state": "CA", "is_demo": True},
+            {"id": "sig-002", "type": "land_purchase", "entity": "Meridian Development Partners LLC", "location": "San Jose, CA", "date": _ts(8), "details": "4.2 acre parcel acquired — 200 Park Ave, San Jose — $18.4M deed recorded", "state": "CA", "is_demo": True},
+            {"id": "sig-003", "type": "equity_raise", "entity": "Meridian Development Partners LLC", "location": "San Jose, CA", "date": _ts(5), "details": "SEC Form D filed — $42M equity raise — Rule 506(c) — accredited investors", "state": "CA", "is_demo": True},
         ])
 
         # Cluster 2: Distressed Asset in Oakland
         self._signals.extend([
-            {"id": "sig-004", "type": "cmbs_maturity", "entity": "1400 Maritime LLC", "location": "Oakland, CA", "date": _ts(30), "details": "CMBS loan $34M maturing — EMMA CUSIP 649346AB2 — no refi filed", "state": "CA"},
-            {"id": "sig-005", "type": "tenant_vacancy_spike", "entity": "1400 Maritime LLC", "location": "Oakland, CA", "date": _ts(20), "details": "CoStar vacancy rate jumped 62% → 78% — 3 tenants vacated Q1", "state": "CA"},
-            {"id": "sig-006", "type": "property_listed", "entity": "1400 Maritime LLC", "location": "Oakland, CA", "date": _ts(7), "details": "CBRE listing — industrial warehouse — asking $28M (was $42M market)", "state": "CA"},
+            {"id": "sig-004", "type": "cmbs_maturity", "entity": "1400 Maritime LLC", "location": "Oakland, CA", "date": _ts(30), "details": "CMBS loan $34M maturing — EMMA CUSIP 649346AB2 — no refi filed", "state": "CA", "is_demo": True},
+            {"id": "sig-005", "type": "tenant_vacancy_spike", "entity": "1400 Maritime LLC", "location": "Oakland, CA", "date": _ts(20), "details": "CoStar vacancy rate jumped 62% → 78% — 3 tenants vacated Q1", "state": "CA", "is_demo": True},
+            {"id": "sig-006", "type": "property_listed", "entity": "1400 Maritime LLC", "location": "Oakland, CA", "date": _ts(7), "details": "CBRE listing — industrial warehouse — asking $28M (was $42M market)", "state": "CA", "is_demo": True},
         ])
 
         # Cluster 3: LBO in Portland
         self._signals.extend([
-            {"id": "sig-007", "type": "parent_acquisition", "entity": "Cascade Holdings Inc", "location": "Portland, OR", "date": _ts(15), "details": "SEC 8-K filed — Cascade acquired by Apex Capital Partners — $56M transaction", "state": "OR"},
-            {"id": "sig-008", "type": "ucc_filing", "entity": "Cascade Holdings Inc", "location": "Portland, OR", "date": _ts(10), "details": "UCC-1 filed — $38M secured note — Bank of America as secured party", "state": "OR"},
-            {"id": "sig-009", "type": "large_wire", "entity": "Cascade Holdings Inc", "location": "Portland, OR", "date": _ts(9), "details": "Large wire transfer flagged — $38M inbound — BoA origination", "state": "OR"},
+            {"id": "sig-007", "type": "parent_acquisition", "entity": "Cascade Holdings Inc", "location": "Portland, OR", "date": _ts(15), "details": "SEC 8-K filed — Cascade acquired by Apex Capital Partners — $56M transaction", "state": "OR", "is_demo": True},
+            {"id": "sig-008", "type": "ucc_filing", "entity": "Cascade Holdings Inc", "location": "Portland, OR", "date": _ts(10), "details": "UCC-1 filed — $38M secured note — Bank of America as secured party", "state": "OR", "is_demo": True},
+            {"id": "sig-009", "type": "large_wire", "entity": "Cascade Holdings Inc", "location": "Portland, OR", "date": _ts(9), "details": "Large wire transfer flagged — $38M inbound — BoA origination", "state": "OR", "is_demo": True},
         ])
 
         # Cluster 4: Ground-Up Development in Sacramento
         self._signals.extend([
-            {"id": "sig-010", "type": "building_permit", "entity": "Sierra Vista Development Corp", "location": "Sacramento, CA", "date": _ts(18), "details": "Building permit issued — 280-unit mixed-use — 3200 Arden Way — $78M estimated cost", "state": "CA"},
-            {"id": "sig-011", "type": "construction_loan_ucc", "entity": "Sierra Vista Development Corp", "location": "Sacramento, CA", "date": _ts(14), "details": "UCC-1 filed — construction loan — $52M — Wells Fargo secured party", "state": "CA"},
-            {"id": "sig-012", "type": "surety_bond_filed", "entity": "Sierra Vista Development Corp", "location": "Sacramento, CA", "date": _ts(11), "details": "Performance bond filed — $78M — Hylant Group / Liberty Mutual", "state": "CA"},
+            {"id": "sig-010", "type": "building_permit", "entity": "Sierra Vista Development Corp", "location": "Sacramento, CA", "date": _ts(18), "details": "Building permit issued — 280-unit mixed-use — 3200 Arden Way — $78M estimated cost", "state": "CA", "is_demo": True},
+            {"id": "sig-011", "type": "construction_loan_ucc", "entity": "Sierra Vista Development Corp", "location": "Sacramento, CA", "date": _ts(14), "details": "UCC-1 filed — construction loan — $52M — Wells Fargo secured party", "state": "CA", "is_demo": True},
+            {"id": "sig-012", "type": "surety_bond_filed", "entity": "Sierra Vista Development Corp", "location": "Sacramento, CA", "date": _ts(11), "details": "Performance bond filed — $78M — Hylant Group / Liberty Mutual", "state": "CA", "is_demo": True},
         ])
 
         # Scatter: individual signals (noise — no convergence)
@@ -195,6 +222,7 @@ class ConvergenceEngine:
                 "date": _ts(rng.randint(1, 60)),
                 "details": "Signal detected — single occurrence, no convergence",
                 "state": rng.choice(states),
+                "is_demo": True,
             })
 
     def _scan_for_convergence(self) -> None:
@@ -232,6 +260,7 @@ class ConvergenceEngine:
                     else:
                         window_days = 0
 
+                    matched_signal_records = [s for s in sigs if s["type"] in matched]
                     self._heat_events.append({
                         "id": f"heat-{eid[:6]}-{pattern['name'][:8].lower().replace(' ', '')}",
                         "entity": entity_name,
@@ -246,8 +275,14 @@ class ConvergenceEngine:
                         "convergence_score": convergence_score,
                         "window_days": window_days,
                         "recommended_agents": pattern["deploy"],
-                        "signals": [s for s in sigs if s["type"] in matched],
+                        "signals": matched_signal_records,
                         "detected_at": _ts(0),
+                        # True only when every underlying signal is demo data —
+                        # a real detection built partly on demo noise would be
+                        # meaningless anyway, but this flag exists so no HEAT
+                        # event derived purely from fabricated data can be
+                        # mistaken for a real one.
+                        "is_demo": all(s.get("is_demo", False) for s in matched_signal_records),
                     })
 
         # Sort by convergence score descending
@@ -282,11 +317,18 @@ class ConvergenceEngine:
         return CONVERGENCE_PATTERNS
 
     def stats(self) -> dict[str, Any]:
-        """Engine statistics."""
+        """Engine statistics. real_* counts exclude demo-seeded data —
+        those are the numbers that mean anything as detection capability."""
+        real_signals = [s for s in self._signals if not s.get("is_demo", False)]
+        real_heat = [h for h in self._heat_events if not h.get("is_demo", False)]
         return {
             "total_signals": len(self._signals),
+            "real_signals": len(real_signals),
+            "demo_signals": len(self._signals) - len(real_signals),
             "unique_entities": len(set(_entity_id(s["entity"]) for s in self._signals)),
             "heat_events": len(self._heat_events),
+            "real_heat_events": len(real_heat),
+            "demo_heat_events": len(self._heat_events) - len(real_heat),
             "critical_events": len([h for h in self._heat_events if h["urgency"] == "critical"]),
             "high_events": len([h for h in self._heat_events if h["urgency"] == "high"]),
             "patterns_monitored": len(CONVERGENCE_PATTERNS),
