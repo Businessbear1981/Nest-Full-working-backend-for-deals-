@@ -250,6 +250,8 @@ PHOENIX_DEALS = [
     },
 ]
 
+PHOENIX_DEALS_BY_ID = {d["id"]: d for d in PHOENIX_DEALS}
+
 PIPELINE_STAGES = ["sourced", "underwriting", "loi", "due_diligence", "bond_structuring", "closed"]
 
 # ── Sourcing radar ────────────────────────────────────────────────────
@@ -273,6 +275,15 @@ RADAR_FEED = [
 class PhoenixEngine:
     """Phoenix distressed CRE acquisition engine.
     list_deals() and get_deal() pull from Supabase (distress filter).
+    create_deal()/update_deal() write through to Supabase's real `deals`
+    table when configured, same as the read path — previously they only
+    ever touched the local in-memory fixture, so a deal created here would
+    vanish on restart and never appear in list_deals() even with Supabase
+    configured. This does NOT unify Phoenix's deal records with
+    routes/deals.py's — both still read/write the same `deals` table but
+    with different shapes (_row_to_phoenix vs. models/deal.py's schema).
+    That's the real "one source of truth" work Ticket 8 scopes, and needs
+    a real schema decision, not a blind consolidation.
     All other methods (underwriting, timeline, bond_handoff) still operate
     on the in-memory PHOENIX_DEALS fixture via deal_id lookup.
     """
@@ -281,11 +292,14 @@ class PhoenixEngine:
         self._deals = {d["id"]: dict(d) for d in PHOENIX_DEALS}
 
     def list_deals(self) -> list[dict[str, Any]]:
-        """Return distressed deals from Supabase; fall back to demo fixtures."""
+        """Return distressed deals from Supabase; fall back to demo fixtures
+        merged with anything created locally this session."""
         live = _load_distressed_from_supabase()
         if live:
             return live
-        return _DISTRESSED_DEMO
+        return _DISTRESSED_DEMO + [
+            d for d in self._deals.values() if d["id"] not in PHOENIX_DEALS_BY_ID
+        ]
 
     def get_deal(self, deal_id: str) -> dict[str, Any] | None:
         # Try Supabase first
@@ -296,19 +310,32 @@ class PhoenixEngine:
                     return _row_to_phoenix(rows[0])
             except Exception:
                 pass
-        # Fall back to in-memory PHOENIX_DEALS fixture
+        # Fall back to in-memory PHOENIX_DEALS fixture (+ anything created locally)
         return self._deals.get(deal_id)
 
     def create_deal(self, data: dict[str, Any]) -> dict[str, Any]:
         new_id = f"phx-{len(self._deals) + 1}"
         deal = {"id": new_id, "stage": "sourced", "created_at": _ts(0), **data}
-        self._deals[new_id] = deal
+        if _db and _db.configured:
+            try:
+                inserted = _db.insert("deals", deal)
+                if inserted:
+                    deal = inserted[0] if isinstance(inserted, list) else inserted
+            except Exception:
+                pass
+        self._deals[deal["id"]] = deal
         return deal
 
     def update_deal(self, deal_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
         deal = self._deals.get(deal_id)
-        if deal:
-            deal.update(data)
+        if not deal:
+            return None
+        deal.update(data)
+        if _db and _db.configured:
+            try:
+                _db.update("deals", {"id": f"eq.{deal_id}"}, data)
+            except Exception:
+                pass
         return deal
 
     def underwriting(self, deal_id: str) -> dict[str, Any] | None:
