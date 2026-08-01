@@ -54,11 +54,49 @@ RATING_AGENCIES = [
 ]
 
 BOND_INSURERS = [
-    {"name": "Assured Guaranty (AGM)", "rating": "AA", "specialty": "Largest active insurer, broad coverage"},
-    {"name": "Assured Guaranty (AGC)", "rating": "AA", "specialty": "Subsidiary, different risk appetite"},
-    {"name": "Build America Mutual (BAM)", "rating": "AA", "specialty": "Mutual model, competitive pricing"},
-    {"name": "Berkshire Hathaway Assurance", "rating": "AA+", "specialty": "Selective, large deals"},
+    {"name": "Assured Guaranty (AGM)", "rating": "AA", "outlook": "Stable", "specialty": "Largest active insurer, broad coverage", "active_writer": True, "market_share_pct": 58},
+    {"name": "Assured Guaranty (AGC)", "rating": "AA", "outlook": "Stable", "specialty": "Subsidiary, different risk appetite", "active_writer": True, "market_share_pct": 0},  # subsidiary of AGM above — market share counted under AGM
+    {"name": "Build America Mutual (BAM)", "rating": "AA", "outlook": "Stable", "specialty": "Mutual model, competitive pricing", "active_writer": True, "market_share_pct": 42},
+    {"name": "Berkshire Hathaway Assurance", "rating": "AA+", "outlook": "Stable", "specialty": "Selective, large deals", "active_writer": False, "market_share_pct": 0},
 ]
+
+# Real two-writer market structure — Assured Guaranty and BAM are the only
+# two active new-issue municipal bond insurers today; everyone else
+# (Berkshire Hathaway Assurance included) writes selectively if at all.
+BOND_INSURANCE_ACTIVE_WRITERS = [i for i in BOND_INSURERS if i["active_writer"] and i["market_share_pct"] > 0]
+
+# Real premium range for municipal bond insurance, priced off total
+# scheduled debt service (principal + interest over the bond's life) — not
+# off bond face like the construction-surety pricing bug fixed in Ticket 7.
+# Actual quotes vary within this band based on credit quality; this is the
+# real market range, not a single "recommended" number to hard-quote.
+BOND_INSURANCE_PREMIUM_PCT_RANGE = {"min": 0.75, "max": 1.50}
+
+
+def bond_insurance_premium(total_debt_service: float, credit_quality: str = "average") -> dict:
+    """Real bond insurance premium mechanics: priced as a percentage of
+    total scheduled debt service (principal + interest), within the real
+    0.75-1.5% market range — not a single hardcoded rate, and not priced
+    off bond face.
+
+    credit_quality: "strong" prices toward the low end of the range,
+    "weak" toward the high end, "average" at the midpoint. This maps
+    quality to a position in the real range; it does not invent a new
+    pricing model.
+    """
+    position = {"strong": 0.0, "average": 0.5, "weak": 1.0}.get(credit_quality, 0.5)
+    lo, hi = BOND_INSURANCE_PREMIUM_PCT_RANGE["min"], BOND_INSURANCE_PREMIUM_PCT_RANGE["max"]
+    premium_pct = lo + (hi - lo) * position
+    return {
+        "premium_pct_of_total_debt_service": round(premium_pct, 3),
+        "premium_usd": round(total_debt_service * premium_pct / 100.0),
+        "total_debt_service": round(total_debt_service),
+        "range_used": BOND_INSURANCE_PREMIUM_PCT_RANGE,
+        "active_writers": [
+            {"name": i["name"], "rating": i["rating"], "outlook": i["outlook"], "market_share_pct": i["market_share_pct"]}
+            for i in BOND_INSURANCE_ACTIVE_WRITERS
+        ],
+    }
 
 LOC_BANKS = [
     {"name": "JPMorgan Chase", "st_rating": "A-1+", "specialty": "Largest LOC provider"},
