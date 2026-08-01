@@ -2,7 +2,10 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from services.bond_type_engine import generate_all_bond_options, BondType, PAR_VALUES
+from services.bond_type_engine import (
+    generate_all_bond_options, BondType, PAR_VALUES,
+    resolve_sector, REVENUE_SECTOR_REGISTRY,
+)
 
 
 TAX_EXEMPT_TYPES = {
@@ -137,3 +140,72 @@ class TestParSizing:
         pars = self._par_values_for(200_000_000)
         assert 200_000_000 in pars
         assert all(80_000_000 <= p <= 500_000_000 for p in pars)
+
+
+class TestSectorResolution:
+    """Ticket 20 / 19: NAICS -> sector resolution."""
+
+    def test_exact_naics_match(self):
+        assert resolve_sector("221310") == "water_sewer"  # water supply
+        assert resolve_sector("721110") == "hotels_hospitality"  # hotels
+
+    def test_4digit_prefix_fallback(self):
+        # 622110 is exact hospitals; a sibling code under the same 4-digit
+        # family should still resolve even without an exact entry.
+        assert resolve_sector("622199") == "hospitals"
+
+    def test_unmapped_naics_returns_none(self):
+        assert resolve_sector("999999") is None
+
+    def test_empty_naics_returns_none(self):
+        assert resolve_sector("") is None
+        assert resolve_sector(None) is None
+
+
+class TestSectorAwareSuitabilityScore:
+    """Ticket 20: suitability_score must reflect real sector fit, not just
+    DSCR-optimal mechanics — the bug where every sector (water/sewer,
+    hospitality, sports facility, etc.) returned the identical top
+    recommendation regardless of NAICS code."""
+
+    def _top_rec_for(self, naics_code: str, borrower_type: str = "") -> dict:
+        deal = {
+            "noi": 5_000_000, "dscr": 1.6, "ltv": 65,
+            "bond_face": 50_000_000, "naics_code": naics_code,
+            "borrower_type": borrower_type,
+        }
+        result = generate_all_bond_options(deal)
+        return result["recommendations"][0]
+
+    def test_different_sectors_produce_different_top_recommendations(self):
+        water_top = self._top_rec_for("221310", borrower_type="governmental")  # water/sewer
+        hotel_top = self._top_rec_for("721110")  # hospitality
+
+        assert water_top["sector"] == "water_sewer"
+        assert hotel_top["sector"] == "hotels_hospitality"
+        assert water_top["bond_type"] != hotel_top["bond_type"]
+
+    def test_recommended_bond_type_is_a_real_sector_fit(self):
+        water_top = self._top_rec_for("221310", borrower_type="governmental")
+        fit_types = {bt.value for bt in REVENUE_SECTOR_REGISTRY["water_sewer"]["fit_bond_types"]}
+        assert water_top["bond_type"] in fit_types
+        assert water_top["sector_validated"] is True
+
+    def test_options_are_tagged_sector_validated_when_sector_known(self):
+        deal = {"noi": 5_000_000, "dscr": 1.6, "ltv": 65, "bond_face": 50_000_000, "naics_code": "221310", "borrower_type": "governmental"}
+        result = generate_all_bond_options(deal)
+        assert all(opt["sector_validated"] for opt in result["all_options"])
+
+    def test_unmapped_sector_falls_back_to_dscr_optimal_and_is_flagged(self):
+        deal = {"noi": 5_000_000, "dscr": 1.6, "ltv": 65, "bond_face": 50_000_000, "naics_code": "999999"}
+        result = generate_all_bond_options(deal)
+        assert all(not opt["sector_validated"] for opt in result["all_options"])
+
+    def test_explicit_sector_key_overrides_naics_resolution(self):
+        deal = {
+            "noi": 5_000_000, "dscr": 1.6, "ltv": 65, "bond_face": 50_000_000,
+            "naics_code": "999999", "sector": "toll_roads",
+        }
+        result = generate_all_bond_options(deal)
+        assert result["recommendations"][0]["sector"] == "toll_roads"
+        assert result["recommendations"][0]["sector_validated"] is True

@@ -6,6 +6,8 @@ Real math — no stubs.
 from __future__ import annotations
 from enum import Enum
 
+from services.emma_engine import SECTOR_NAICS_MAP
+
 # ── ENUMS ─────────────────────────────────────────────────────────────────────
 
 class BondType(Enum):
@@ -192,6 +194,114 @@ def _append(rows, yr, beg, interest, principal, noi):
     })
 
 
+# ── SECTOR REGISTRY (Ticket 20) ─────────────────────────────────────────────
+# suitability_score previously ranked bond type x amortization combinations
+# purely on OPBA readiness + DSCR — no sector, NAICS, or bond-type-to-use-case
+# fit entered the calculation, so every sector returned the identical top
+# recommendation regardless of whether the deal was a water district or a
+# sports facility. This registry gives that a real signal: a covenant-level
+# DSCR floor per sector (consistent with emma_engine._static_template's
+# per-sector defaults) and which bond types actually fit that sector's real
+# financing conventions.
+
+REVENUE_SECTOR_REGISTRY: dict[str, dict] = {
+    "water_sewer": {
+        "dscr_floor": 1.20,
+        "fit_bond_types": {BondType.REVENUE_BOND, BondType.TAX_EXEMPT_PAB, BondType.DUAL_TRANCHE_NEST, BondType.GREEN_REVENUE},
+    },
+    "electric_power": {
+        "dscr_floor": 1.10,
+        "fit_bond_types": {BondType.REVENUE_BOND, BondType.TAX_EXEMPT_PAB, BondType.DUAL_TRANCHE_NEST, BondType.GREEN_REVENUE},
+    },
+    "airports": {
+        "dscr_floor": 1.25,
+        "fit_bond_types": {BondType.REVENUE_BOND, BondType.TAX_EXEMPT_PAB, BondType.DUAL_TRANCHE_NEST},
+    },
+    "toll_roads": {
+        "dscr_floor": 1.30,
+        "fit_bond_types": {BondType.REVENUE_BOND, BondType.TAX_EXEMPT_PAB, BondType.DUAL_TRANCHE_NEST},
+    },
+    "solid_waste": {
+        "dscr_floor": 1.20,
+        "fit_bond_types": {BondType.REVENUE_BOND, BondType.TAX_EXEMPT_PAB, BondType.DUAL_TRANCHE_NEST, BondType.SUSTAINABILITY_BOND},
+    },
+    "higher_education": {
+        "dscr_floor": 1.20,
+        "fit_bond_types": {BondType.REVENUE_BOND, BondType.TAX_EXEMPT_PAB, BondType.DUAL_TRANCHE_NEST},
+    },
+    "hospitals": {
+        "dscr_floor": 1.25,
+        "fit_bond_types": {BondType.REVENUE_BOND, BondType.TAX_EXEMPT_PAB, BondType.DUAL_TRANCHE_NEST},
+    },
+    "senior_living": {
+        "dscr_floor": 1.20,
+        "fit_bond_types": {BondType.REVENUE_BOND, BondType.TAX_EXEMPT_PAB, BondType.DUAL_TRANCHE_NEST},
+    },
+    "charter_schools": {
+        "dscr_floor": 1.10,
+        "fit_bond_types": {BondType.REVENUE_BOND, BondType.TAX_EXEMPT_PAB, BondType.DUAL_TRANCHE_NEST},
+    },
+    "affordable_multifamily": {
+        "dscr_floor": 1.15,
+        "fit_bond_types": {BondType.TAX_EXEMPT_PAB, BondType.REVENUE_BOND},
+    },
+    "market_rate_multifamily": {
+        "dscr_floor": 1.25,
+        "fit_bond_types": {BondType.TAXABLE, BondType.RULE_144A, BondType.DUAL_TRANCHE_NEST},
+    },
+    "hotels_hospitality": {
+        "dscr_floor": 1.35,
+        "fit_bond_types": {BondType.TAXABLE, BondType.RULE_144A, BondType.MEZZANINE},
+    },
+    "data_centers": {
+        "dscr_floor": 1.25,
+        "fit_bond_types": {BondType.TAXABLE, BondType.RULE_144A, BondType.DUAL_TRANCHE_NEST},
+    },
+    "manufacturing": {
+        "dscr_floor": 1.25,
+        "fit_bond_types": {BondType.TAX_EXEMPT_PAB, BondType.TAXABLE, BondType.RULE_144A},
+    },
+    "municipal": {
+        "dscr_floor": 1.20,
+        "fit_bond_types": {BondType.REVENUE_BOND, BondType.TAX_EXEMPT_PAB, BondType.DUAL_TRANCHE_NEST},
+    },
+    "corporate": {
+        "dscr_floor": 1.20,
+        "fit_bond_types": {BondType.TAXABLE, BondType.RULE_144A, BondType.MEZZANINE},
+    },
+}
+
+# NAICS -> sector resolution: exact 6-digit, then 4/3/2-digit prefix
+# fallback, then DEFAULT. Built from emma_engine.SECTOR_NAICS_MAP so the two
+# modules can't drift into disagreeing about what NAICS code means what
+# sector.
+_NAICS_EXACT: dict[str, str] = {
+    code: sector for sector, codes in SECTOR_NAICS_MAP.items() for code in codes
+}
+
+
+def resolve_sector(naics_code: str) -> str | None:
+    """Resolve a NAICS code to a REVENUE_SECTOR_REGISTRY sector key.
+
+    Tries an exact 6-digit match first, then progressively shorter
+    prefixes (4, 3, 2 digits), matched against the same prefix length of
+    any known code. Returns None (DEFAULT) if nothing matches.
+    """
+    code = str(naics_code or "").strip()
+    if not code:
+        return None
+    if code in _NAICS_EXACT:
+        return _NAICS_EXACT[code]
+    for prefix_len in (4, 3, 2):
+        prefix = code[:prefix_len]
+        if len(prefix) < prefix_len:
+            continue
+        for known_code, sector in _NAICS_EXACT.items():
+            if known_code[:prefix_len] == prefix and sector in REVENUE_SECTOR_REGISTRY:
+                return sector
+    return None
+
+
 # ── FULL OPTION GENERATOR ─────────────────────────────────────────────────────
 
 PAR_VALUES = [
@@ -262,6 +372,12 @@ def generate_all_bond_options(deal_data: dict, weights: dict | None = None) -> d
     if dscr < 1.50 or ltv > 70:
         eligible.add(BondType.MEZZANINE)
 
+    # Ticket 20: sector resolution for the suitability_score sector-fit term
+    # below. Explicit "sector" key wins if supplied; otherwise resolved from
+    # NAICS via REVENUE_SECTOR_REGISTRY/resolve_sector().
+    sector = str(deal_data.get("sector") or "").strip() or resolve_sector(naics)
+    sector_info = REVENUE_SECTOR_REGISTRY.get(sector) if sector else None
+
     options = []
     par_candidates = _par_candidates(bond_face)
 
@@ -277,12 +393,31 @@ def generate_all_bond_options(deal_data: dict, weights: dict | None = None) -> d
 
                 yr1_dscr = schedule[0]["dscr"] if schedule else None
                 yr1_ds   = schedule[0]["total_ds"] if schedule else None
+                dscr_component = min(100.0, max(0.0, ((yr1_dscr or dscr) - 1.0) * 100.0))
 
-                suitability = round(
-                    opba["readiness_pct"] * 0.6 +
-                    min(100.0, max(0.0, ((yr1_dscr or dscr) - 1.0) * 100.0)) * 0.4,
-                    1,
-                )
+                if sector_info:
+                    # Sector-aware: readiness + DSCR-fit + real sector fit —
+                    # was DSCR-optimal only, so e.g. a Special Tax Bond fitting
+                    # a sports facility better than a GO bond never showed up;
+                    # the mechanically-best DSCR always won regardless of sector.
+                    sector_fit = 100.0 if bt in sector_info["fit_bond_types"] else 0.0
+                    dscr_floor_met = 100.0 if (yr1_dscr or dscr) >= sector_info["dscr_floor"] else 0.0
+                    suitability = round(
+                        opba["readiness_pct"] * 0.45 +
+                        dscr_component * 0.25 +
+                        sector_fit * 0.20 +
+                        dscr_floor_met * 0.10,
+                        1,
+                    )
+                else:
+                    # No sector resolved (unknown/unmapped NAICS, no sector
+                    # supplied) — DSCR-optimal only, same as before. Callers
+                    # should treat this case's "top recommendation" as
+                    # DSCR-optimal, not sector-validated.
+                    suitability = round(
+                        opba["readiness_pct"] * 0.6 + dscr_component * 0.4,
+                        1,
+                    )
 
                 options.append({
                     "bond_type":           bt.value,
@@ -294,6 +429,8 @@ def generate_all_bond_options(deal_data: dict, weights: dict | None = None) -> d
                     "dscr_yr1":            round(yr1_dscr, 3) if yr1_dscr else dscr,
                     "annual_ds_yr1":       round(yr1_ds, 0) if yr1_ds else None,
                     "suitability_score":   suitability,
+                    "sector":              sector,
+                    "sector_validated":    sector_info is not None,
                     "green_eligible":      is_green or bt in (BondType.GREEN_REVENUE, BondType.SUSTAINABILITY_BOND),
                     "nest_fee_pct":        2.25,
                     "nest_fee_usd":        round(par * 0.0225, 0),
