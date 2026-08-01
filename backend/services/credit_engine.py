@@ -189,6 +189,71 @@ class CreditEngine:
 
         return max(0, min(100, lgd))
 
+    def free_equity(self, appraised_value: float, total_debt: float,
+                    reserves: float = 0.0, holdbacks: float = 0.0,
+                    valuation_basis: str = "as_completed") -> float:
+        """Real, re-appraisal-based free equity: what's actually pullable out
+        of an appraised asset after paying off debt and funding reserves/
+        holdbacks. Standard formula, not the residual capital-stack "equity"
+        compute_capital_stack() below produces (project_cost minus planned
+        debt draws) — that's a sources-and-uses split at origination, this
+        is a post-appraisal cash-out figure used for phase-to-phase equity
+        roll-forward.
+
+        valuation_basis: "as_completed" (the finished/stabilized value —
+        what a just-completed phase gets re-appraised at, the real trigger
+        for a roll-forward event) or "as_is" (current condition, used when
+        planning off a not-yet-completed phase's present value). This
+        function does the same math either way — the caller is responsible
+        for passing the appraised_value that actually matches the basis
+        named; this parameter exists so that choice is explicit and
+        auditable rather than silently assumed.
+        """
+        if valuation_basis not in ("as_completed", "as_is"):
+            raise ValueError(f"valuation_basis must be 'as_completed' or 'as_is', got {valuation_basis!r}")
+        return max(0.0, appraised_value - total_debt - reserves - holdbacks)
+
+    def roll_forward_equity(self, phase_appraised_value: float, phase_total_debt: float,
+                            target_ltc_pct: float, next_phase_cost: float,
+                            reserves: float = 0.0, holdbacks: float = 0.0,
+                            valuation_basis: str = "as_completed") -> dict:
+        """Real cross-phase equity roll-forward (Ticket 17's gap): a
+        completed phase's re-appraised value, less its debt/reserves/
+        holdbacks, is the free equity available to fund the next phase.
+        Applying target_ltc_pct to next_phase_cost gives what that next
+        phase still needs in new debt/equity beyond what rolled forward.
+
+        A real roll-forward event is normally triggered off the completed
+        phase's "as_completed" (finished/stabilized) appraisal, not its
+        "as_is" value — pass valuation_basis="as_is" only when deliberately
+        modeling off a phase's current, not-yet-finished condition.
+
+        This is a generic, percentage/parameter-driven primitive — every
+        input is a live argument, nothing here is specific to any one
+        project. Applying it to Horn Lake's actual six phases still needs
+        real per-phase cost data for Phases 2-6, which per the build brief
+        doesn't exist yet outside Phase 1.
+        """
+        equity_available = self.free_equity(
+            phase_appraised_value, phase_total_debt, reserves, holdbacks, valuation_basis
+        )
+        next_phase_debt_capacity = next_phase_cost * (target_ltc_pct / 100.0)
+        next_phase_equity_required = max(0.0, next_phase_cost - next_phase_debt_capacity)
+        equity_rolled_forward = min(equity_available, next_phase_equity_required)
+        remaining_equity_gap = max(0.0, next_phase_equity_required - equity_rolled_forward)
+        excess_equity_after_roll = max(0.0, equity_available - equity_rolled_forward)
+        return {
+            "valuation_basis": valuation_basis,
+            "equity_available": round(equity_available),
+            "next_phase_cost": round(next_phase_cost),
+            "next_phase_debt_capacity": round(next_phase_debt_capacity),
+            "next_phase_equity_required": round(next_phase_equity_required),
+            "equity_rolled_forward": round(equity_rolled_forward),
+            "remaining_equity_gap": round(remaining_equity_gap),
+            "excess_equity_after_roll": round(excess_equity_after_roll),
+            "fully_funded_by_roll_forward": remaining_equity_gap == 0,
+        }
+
     def compute_capital_stack(self, project_cost: float, a_ltc: float = 0.75,
                               b_addon: float = 0.07, duration: int = 5,
                               a_coupon: float = 7.0, b_coupon: float = 12.0) -> dict:

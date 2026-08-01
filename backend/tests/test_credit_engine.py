@@ -192,3 +192,93 @@ class TestCapitalStack:
         assert stack["b_amount"] == 7_000_000
         assert stack["equity"] == 18_000_000
         assert stack["cltv"] == 82.0
+
+
+# ── free equity / roll-forward (Ticket 19/17) ──────────────────────
+
+class TestFreeEquity:
+    """max(0, AppraisedValue - TotalDebt - Reserves - Holdbacks) — the real,
+    re-appraisal-based free equity formula, distinct from
+    compute_capital_stack()'s residual sources-and-uses equity figure."""
+
+    def test_standard_case(self):
+        fe = engine.free_equity(appraised_value=100_000_000, total_debt=65_000_000)
+        assert fe == 35_000_000
+
+    def test_reserves_and_holdbacks_reduce_free_equity(self):
+        fe = engine.free_equity(
+            appraised_value=100_000_000, total_debt=65_000_000,
+            reserves=2_000_000, holdbacks=1_000_000,
+        )
+        assert fe == 32_000_000
+
+    def test_floors_at_zero_never_negative(self):
+        fe = engine.free_equity(appraised_value=50_000_000, total_debt=80_000_000)
+        assert fe == 0.0
+
+    def test_generic_across_arbitrary_project_sizes_not_hardcoded(self):
+        """Formula must scale as a percentage relationship, not assume any
+        specific project's dollar amounts (e.g. Horn Lake's)."""
+        small = engine.free_equity(appraised_value=10_000_000, total_debt=6_500_000)
+        large = engine.free_equity(appraised_value=1_000_000_000, total_debt=650_000_000)
+        assert small == 3_500_000
+        assert large == 350_000_000
+        assert large == small * 100
+
+    def test_defaults_to_as_completed_basis(self):
+        fe = engine.free_equity(appraised_value=100_000_000, total_debt=65_000_000)
+        assert fe == 35_000_000  # basis doesn't change the math, only what appraised_value means
+
+    def test_rejects_invalid_valuation_basis(self):
+        try:
+            engine.free_equity(appraised_value=100_000_000, total_debt=65_000_000, valuation_basis="market")
+            assert False, "expected ValueError for invalid valuation_basis"
+        except ValueError:
+            pass
+
+
+class TestRollForwardEquity:
+    """Ticket 17: a completed phase's re-appraised value, less debt/
+    reserves/holdbacks, is the free equity available to fund the next
+    phase's capital requirement at a target LTC."""
+
+    def test_equity_fully_funds_next_phase(self):
+        result = engine.roll_forward_equity(
+            phase_appraised_value=100_000_000, phase_total_debt=65_000_000,
+            target_ltc_pct=70, next_phase_cost=100_000_000,
+        )
+        # free equity = 35M; next phase needs 30M equity (100M - 70M debt capacity)
+        assert result["equity_available"] == 35_000_000
+        assert result["next_phase_equity_required"] == 30_000_000
+        assert result["equity_rolled_forward"] == 30_000_000
+        assert result["remaining_equity_gap"] == 0
+        assert result["excess_equity_after_roll"] == 5_000_000
+        assert result["fully_funded_by_roll_forward"] is True
+
+    def test_equity_gap_when_next_phase_bigger(self):
+        result = engine.roll_forward_equity(
+            phase_appraised_value=50_000_000, phase_total_debt=35_000_000,
+            target_ltc_pct=70, next_phase_cost=100_000_000,
+        )
+        # free equity = 15M; next phase needs 30M equity — 15M gap remains
+        assert result["equity_available"] == 15_000_000
+        assert result["next_phase_equity_required"] == 30_000_000
+        assert result["equity_rolled_forward"] == 15_000_000
+        assert result["remaining_equity_gap"] == 15_000_000
+        assert result["fully_funded_by_roll_forward"] is False
+
+    def test_valuation_basis_defaults_to_as_completed_and_is_reported(self):
+        result = engine.roll_forward_equity(
+            phase_appraised_value=100_000_000, phase_total_debt=65_000_000,
+            target_ltc_pct=70, next_phase_cost=100_000_000,
+        )
+        assert result["valuation_basis"] == "as_completed"
+
+    def test_as_is_basis_explicitly_selectable(self):
+        result = engine.roll_forward_equity(
+            phase_appraised_value=90_000_000, phase_total_debt=65_000_000,
+            target_ltc_pct=70, next_phase_cost=100_000_000,
+            valuation_basis="as_is",
+        )
+        assert result["valuation_basis"] == "as_is"
+        assert result["equity_available"] == 25_000_000

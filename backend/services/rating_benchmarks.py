@@ -617,6 +617,30 @@ def score_moodys_financial(financials: dict) -> dict:
     return results
 
 
+def dsrf_size(mads: float, aads: float, par: float) -> dict:
+    """Real DSRF sizing per the IRC 148(d) safe harbor documented in
+    STRUCTURING_CRITERIA["dsrf_sizing"] above — least of Maximum Annual Debt
+    Service, 125% of Average Annual Debt Service, or 10% of par. Previously
+    that safe harbor existed only as descriptive text; this is the actual
+    computable formula it describes.
+
+    mads: Maximum Annual Debt Service across the bond's life
+    aads: Average Annual Debt Service across the bond's life
+    par:  bond par value
+    """
+    candidates = {
+        "mads": mads,
+        "125pct_aads": aads * 1.25,
+        "10pct_par": par * 0.10,
+    }
+    binding = min(candidates, key=candidates.get)
+    return {
+        "dsrf_required": round(candidates[binding], 2),
+        "binding_constraint": binding,
+        "candidates": {k: round(v, 2) for k, v in candidates.items()},
+    }
+
+
 def get_structuring_targets(target_rating: str) -> dict:
     """Given a target rating, return the structural parameters needed."""
     rating_key = target_rating.rstrip("+-").replace("+", "").replace("-", "")
