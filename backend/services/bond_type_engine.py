@@ -36,6 +36,7 @@ class AmortizationType(Enum):
     BULLET             = "Bullet Maturity"
     SCULPTED           = "Constant DSCR Sculpted"
     DEFERRED           = "Deferred Principal (IO)"
+    CAB_ACCRETION      = "Capital Appreciation (Zero-Coupon Accreting)"
 
 
 # ── S&P OPBA SCORING (Real Math) ───────────────────────────────────────────────
@@ -156,6 +157,10 @@ _AMORT_SPREAD = {
     AmortizationType.BULLET:             0.50,
     AmortizationType.SCULPTED:          -0.15,
     AmortizationType.DEFERRED:           0.75,
+    # CABs typically price with a modest premium over current-interest bonds
+    # of the same credit — no reinvestment income to the holder and weaker
+    # secondary-market liquidity for long-duration zero-coupon paper.
+    AmortizationType.CAB_ACCRETION:      0.20,
 }
 
 
@@ -238,6 +243,39 @@ def generate_amortization_schedule(
             principal = min(max(ds_target - interest, 0.0), balance)
             _append(rows, yr, balance, interest, principal, noi)
             balance   = max(balance - principal, 0.0)
+
+    elif amort_type == AmortizationType.CAB_ACCRETION:
+        # Real CAB math: value accretes at the stated rate, compounded
+        # semiannually (standard muni convention) — zero cash debt service
+        # until maturity, when the full accreted value comes due as a
+        # single lump sum. `balance`/`beg_balance`/`end_balance` here track
+        # the growing accreted liability, not a shrinking principal balance
+        # the way every other amortization type does.
+        for yr in range(1, n + 1):
+            accreted_value = par * (1 + r / 2) ** (2 * yr)
+            prior_value    = par * (1 + r / 2) ** (2 * (yr - 1))
+            if yr < n:
+                rows.append({
+                    "year":           yr,
+                    "beg_balance":    round(prior_value, 2),
+                    "interest":       round(accreted_value - prior_value, 2),  # accrued, not paid in cash
+                    "principal":      0.0,
+                    "total_ds":       0.0,   # no cash debt service until maturity
+                    "end_balance":    round(accreted_value, 2),
+                    "accreted_value": round(accreted_value, 2),
+                    "dscr":           None,  # no cash DS this year to compare against NOI
+                })
+            else:
+                rows.append({
+                    "year":           yr,
+                    "beg_balance":    round(prior_value, 2),
+                    "interest":       round(accreted_value - par, 2),  # total accreted interest, paid at maturity
+                    "principal":      round(par, 2),
+                    "total_ds":       round(accreted_value, 2),
+                    "end_balance":    0.0,
+                    "accreted_value": round(accreted_value, 2),
+                    "dscr":           round(noi / accreted_value, 3) if accreted_value > 0 and noi > 0 else None,
+                })
 
     return rows
 

@@ -7,6 +7,7 @@ from services.bond_type_engine import (
     resolve_sector, REVENUE_SECTOR_REGISTRY,
     calculate_coupon, AmortizationType,
     BRIDGE_TO_PERMANENT_CONVERSION_TRIGGERS,
+    generate_amortization_schedule,
 )
 
 
@@ -301,3 +302,48 @@ class TestTicket21NewBondTypes:
         with_index = calculate_coupon(BondType.VRDO, AmortizationType.LEVEL_DEBT_SERVICE, dscr=1.5, ltv=65, sifma_index_bps=350)
         assert no_index != with_index
         assert with_index == round(350 / 100.0 + 0.15, 2)
+
+
+class TestCabAccretion:
+    """Ticket 19: real CAB (Capital Appreciation Bond) accretion math —
+    semiannual compounding, zero cash debt service until maturity, full
+    accreted value due as a lump sum at maturity. Previously the concept
+    was only described in comments (bond_intelligence.py's BAN description)
+    but never actually computed anywhere in the codebase."""
+
+    def test_maturity_value_matches_standard_semiannual_compounding_formula(self):
+        schedule = generate_amortization_schedule(
+            par=10_000_000, coupon_pct=6.0, maturity_years=5,
+            amort_type=AmortizationType.CAB_ACCRETION,
+        )
+        expected_maturity_value = 10_000_000 * (1 + 0.03) ** 10
+        assert schedule[-1]["accreted_value"] == round(expected_maturity_value, 2)
+
+    def test_zero_cash_debt_service_until_maturity(self):
+        schedule = generate_amortization_schedule(
+            par=10_000_000, coupon_pct=6.0, maturity_years=5,
+            amort_type=AmortizationType.CAB_ACCRETION,
+        )
+        for row in schedule[:-1]:
+            assert row["total_ds"] == 0.0
+            assert row["principal"] == 0.0
+        assert schedule[-1]["total_ds"] == schedule[-1]["accreted_value"]
+        assert schedule[-1]["principal"] == 10_000_000
+
+    def test_accreted_value_strictly_increasing(self):
+        schedule = generate_amortization_schedule(
+            par=10_000_000, coupon_pct=6.0, maturity_years=5,
+            amort_type=AmortizationType.CAB_ACCRETION,
+        )
+        values = [row["accreted_value"] for row in schedule]
+        assert values == sorted(values)
+        assert len(set(values)) == len(values)
+
+    def test_cab_reachable_as_a_real_amortization_option(self):
+        deal = {
+            "noi": 3_000_000, "dscr": 1.3, "ltv": 65, "bond_face": 40_000_000,
+            "naics_code": "531110", "borrower_type": "governmental",
+        }
+        result = generate_all_bond_options(deal)
+        cab_options = [o for o in result["all_options"] if o["amortization"] == AmortizationType.CAB_ACCRETION.value]
+        assert cab_options
