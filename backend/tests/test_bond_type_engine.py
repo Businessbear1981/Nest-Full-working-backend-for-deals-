@@ -5,6 +5,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from services.bond_type_engine import (
     generate_all_bond_options, BondType, PAR_VALUES,
     resolve_sector, REVENUE_SECTOR_REGISTRY,
+    calculate_coupon, AmortizationType,
+    BRIDGE_TO_PERMANENT_CONVERSION_TRIGGERS,
 )
 
 
@@ -209,3 +211,93 @@ class TestSectorAwareSuitabilityScore:
         result = generate_all_bond_options(deal)
         assert result["recommendations"][0]["sector"] == "toll_roads"
         assert result["recommendations"][0]["sector_validated"] is True
+
+
+class TestTicket21NewBondTypes:
+    """Ticket 21: Housing Authority, GAN/RAN/TAN, VRDO, Bridge-to-Permanent
+    must be real, reachable options with correct structural metadata —
+    not enum-only stubs."""
+
+    BASE_DEAL = {
+        "noi": 3_000_000, "dscr": 1.3, "ltv": 65, "bond_face": 40_000_000,
+        "naics_code": "531110", "borrower_type": "governmental",
+        "anticipated_grant_award": True,
+    }
+
+    def _options_for(self, **overrides) -> list:
+        deal = dict(self.BASE_DEAL, **overrides)
+        return generate_all_bond_options(deal)["all_options"]
+
+    def test_housing_authority_reachable_for_housing_naics(self):
+        types = {o["bond_type"] for o in self._options_for()}
+        assert BondType.HOUSING_AUTHORITY.value in types
+
+    def test_gan_reachable_when_grant_award_anticipated(self):
+        types = {o["bond_type"] for o in self._options_for(anticipated_grant_award=True)}
+        assert BondType.GAN.value in types
+
+    def test_gan_unreachable_without_grant_award(self):
+        types = {o["bond_type"] for o in self._options_for(anticipated_grant_award=False)}
+        assert BondType.GAN.value not in types
+
+    def test_ran_reachable_for_nonprofit_below_dscr_ceiling(self):
+        types = {o["bond_type"] for o in self._options_for(dscr=1.4)}
+        assert BondType.RAN.value in types
+
+    def test_tan_requires_actual_taxing_authority_not_just_any_nonprofit(self):
+        gov_types = {o["bond_type"] for o in self._options_for(borrower_type="governmental")}
+        nonprofit_types = {o["bond_type"] for o in self._options_for(borrower_type="nonprofit")}
+        assert BondType.TAN.value in gov_types
+        assert BondType.TAN.value not in nonprofit_types
+
+    def test_vrdo_reachable_and_flagged_variable_rate(self):
+        options = [o for o in self._options_for() if o["bond_type"] == BondType.VRDO.value]
+        assert options
+        assert all(o["rate_type"] == "variable" for o in options)
+
+    def test_vrdo_unreachable_below_liquidity_facility_threshold(self):
+        types = {o["bond_type"] for o in self._options_for(bond_face=2_000_000)}
+        assert BondType.VRDO.value not in types
+
+    def test_fixed_rate_types_flagged_fixed(self):
+        options = [o for o in self._options_for() if o["bond_type"] == BondType.REVENUE_BOND.value]
+        assert options
+        assert all(o["rate_type"] == "fixed" for o in options)
+
+    def test_anticipation_notes_carry_real_repayment_source(self):
+        options = self._options_for()
+        gan = next(o for o in options if o["bond_type"] == BondType.GAN.value)
+        ran = next(o for o in options if o["bond_type"] == BondType.RAN.value)
+        tan = next(o for o in options if o["bond_type"] == BondType.TAN.value)
+        assert gan["anticipated_repayment_source"] == "grant_award"
+        assert ran["anticipated_repayment_source"] == "pledged_revenue"
+        assert tan["anticipated_repayment_source"] == "property_tax_levy"
+
+    def test_anticipation_notes_are_short_term(self):
+        options = self._options_for()
+        for bt_value, max_years in [
+            (BondType.GAN.value, 2), (BondType.RAN.value, 1), (BondType.TAN.value, 1),
+        ]:
+            matches = [o for o in options if o["bond_type"] == bt_value]
+            assert matches
+            assert all(o["maturity_years"] <= max_years for o in matches)
+
+    def test_bridge_to_permanent_reachable_pre_stabilization(self):
+        types = {o["bond_type"] for o in self._options_for(dscr=1.4)}
+        assert BondType.BRIDGE_TO_PERMANENT.value in types
+
+    def test_bridge_to_permanent_unreachable_once_stabilized(self):
+        types = {o["bond_type"] for o in self._options_for(dscr=2.0)}
+        assert BondType.BRIDGE_TO_PERMANENT.value not in types
+
+    def test_bridge_to_permanent_carries_real_conversion_triggers(self):
+        options = self._options_for(dscr=1.4)
+        bridge = next(o for o in options if o["bond_type"] == BondType.BRIDGE_TO_PERMANENT.value)
+        assert bridge["bridge_conversion_triggers"] == BRIDGE_TO_PERMANENT_CONVERSION_TRIGGERS
+        assert bridge["maturity_years"] == 3
+
+    def test_vrdo_coupon_uses_sifma_index_when_supplied(self):
+        no_index = calculate_coupon(BondType.VRDO, AmortizationType.LEVEL_DEBT_SERVICE, dscr=1.5, ltv=65)
+        with_index = calculate_coupon(BondType.VRDO, AmortizationType.LEVEL_DEBT_SERVICE, dscr=1.5, ltv=65, sifma_index_bps=350)
+        assert no_index != with_index
+        assert with_index == round(350 / 100.0 + 0.15, 2)

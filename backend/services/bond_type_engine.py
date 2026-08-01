@@ -21,6 +21,13 @@ class BondType(Enum):
     TAXABLE             = "Taxable Bond"
     MEZZANINE           = "Mezzanine Bond"
     RULE_144A           = "Rule 144A Private Placement"
+    # Ticket 21 additions — remaining bond types from the Grok bond-universe spec
+    HOUSING_AUTHORITY   = "Housing Authority Bond"
+    GAN                 = "Grant Anticipation Note"
+    RAN                 = "Revenue Anticipation Note"
+    TAN                 = "Tax Anticipation Note"
+    VRDO                = "Variable Rate Demand Obligation"
+    BRIDGE_TO_PERMANENT = "Bridge-to-Permanent"
 
 
 class AmortizationType(Enum):
@@ -97,7 +104,51 @@ _BASE_COUPON = {
     BondType.TAXABLE:             7.50,
     BondType.MEZZANINE:          11.50,
     BondType.RULE_144A:           8.00,
+    # Housing Authority — often HUD/Section 8-backed, essential-service muni
+    # credit, prices tighter than a standalone revenue bond.
+    BondType.HOUSING_AUTHORITY:   5.25,
+    # GAN/RAN/TAN — short-term cash-flow notes backed by a specific
+    # anticipated grant/revenue/tax source (not a future bond takeout like
+    # BAN), so they price meaningfully tighter than BAN's speculative-takeout
+    # risk despite also being short-term.
+    BondType.GAN:                 6.75,
+    BondType.RAN:                 6.50,
+    BondType.TAN:                 6.25,
+    # VRDO — floating-rate, weekly/daily put + remarketing, backed by a
+    # liquidity facility (LOC/SBPA). This base is the fixed-rate-equivalent
+    # anchor before the variable-rate index adjustment applied below;
+    # real VRDO pricing floats off SIFMA + spread, not a fixed coupon.
+    BondType.VRDO:                3.25,
+    # Bridge-to-Permanent — short bridge leg priced like a construction
+    # bridge loan; the permanent takeout leg is a separate, later structure
+    # (see bridge_to_permanent_conversion() below), not priced here.
+    BondType.BRIDGE_TO_PERMANENT: 8.25,
 }
+
+# Real anticipated-repayment source per note type — what a GAN/RAN/TAN is
+# actually secured by, distinct from BAN's speculative future-bond takeout.
+ANTICIPATION_NOTE_SOURCE = {
+    BondType.GAN: "grant_award",
+    BondType.RAN: "pledged_revenue",
+    BondType.TAN: "property_tax_levy",
+}
+
+# Real maturity conventions for short-term/bridge instruments — everything
+# else falls back to the standard 25/30yr long-bond default.
+_SHORT_TERM_MATURITY_YEARS = {
+    BondType.BAN: 5,
+    BondType.GAN: 2,
+    BondType.RAN: 1,
+    BondType.TAN: 1,
+    BondType.BRIDGE_TO_PERMANENT: 3,
+}
+
+# Bridge-to-Permanent conversion triggers — same real vocabulary
+# bond_intelligence.py's BAN conversion_triggers already uses, so a deal's
+# stage data means the same thing across both engines.
+BRIDGE_TO_PERMANENT_CONVERSION_TRIGGERS = [
+    "presales_50pct", "feasibility_complete", "GMP_executed", "all_permits",
+]
 
 _AMORT_SPREAD = {
     AmortizationType.LEVEL_DEBT_SERVICE: 0.00,
@@ -114,8 +165,19 @@ def calculate_coupon(
     dscr: float = 1.5,
     ltv: float = 70.0,
     is_green: bool = False,
+    sifma_index_bps: float | None = None,
 ) -> float:
-    base    = _BASE_COUPON.get(bond_type, 7.0)
+    """
+    sifma_index_bps: current SIFMA municipal swap index, in bps. Only used
+    for VRDO — real VRDO pricing floats off SIFMA + a remarketing/liquidity
+    spread, not a fixed base coupon. When not supplied, VRDO falls back to
+    its fixed-rate-equivalent anchor in _BASE_COUPON (clearly an estimate,
+    not a real floating quote).
+    """
+    if bond_type == BondType.VRDO and sifma_index_bps is not None:
+        base = round(sifma_index_bps / 100.0, 2) + 0.15  # SIFMA + liquidity/remarketing spread
+    else:
+        base = _BASE_COUPON.get(bond_type, 7.0)
     a_adj   = _AMORT_SPREAD.get(amort_type, 0.0)
     dscr_a  = -0.25 if dscr >= 1.75 else (0.25 if dscr < 1.35 else 0.0)
     ltv_a   =  0.30 if ltv > 75 else (-0.15 if ltv < 60 else 0.0)
@@ -343,8 +405,15 @@ def generate_all_bond_options(deal_data: dict, weights: dict | None = None) -> d
     liquidity = float(deal_data.get("liquidity_ratio") or 0.80)
     naics     = str(deal_data.get("naics_code") or "")
     stage     = str(deal_data.get("stage") or "")
-    nonprofit = str(deal_data.get("borrower_type") or "").lower() in (
+    borrower_type_lc = str(deal_data.get("borrower_type") or "").lower()
+    nonprofit = borrower_type_lc in (
         "nonprofit", "501c3", "501(c)(3)", "non-profit",
+        "governmental", "municipality", "municipal", "issuer", "conduit"
+    )
+    # Distinct from `nonprofit` above: TAN specifically requires actual
+    # taxing authority (property tax levy), which a 501(c)(3) nonprofit
+    # doesn't have even though it shares tax-exempt bond eligibility.
+    governmental_issuer = borrower_type_lc in (
         "governmental", "municipality", "municipal", "issuer", "conduit"
     )
 
@@ -372,6 +441,33 @@ def generate_all_bond_options(deal_data: dict, weights: dict | None = None) -> d
     if dscr < 1.50 or ltv > 70:
         eligible.add(BondType.MEZZANINE)
 
+    # Housing Authority — nonprofit/governmental issuer on a housing-sector
+    # deal (or explicitly flagged as HUD/Section 8-backed).
+    if (nonprofit and naics[:4] in ("5311",)) or deal_data.get("housing_authority_backed"):
+        eligible.add(BondType.HOUSING_AUTHORITY)
+    # GAN — real grant award pending; not a speculative future-bond takeout
+    # like BAN, so it's gated on an actual anticipated grant, not just stage.
+    if deal_data.get("anticipated_grant_award"):
+        eligible.add(BondType.GAN)
+    # RAN — routine muni cash-flow bridge against pledged/anticipated
+    # revenue; broadly available to nonprofit/governmental issuers, same
+    # population as BAN's tax-exempt eligibility.
+    if nonprofit and dscr < 1.75:
+        eligible.add(BondType.RAN)
+    # TAN — requires actual taxing authority (property tax levy), which
+    # only a governmental issuer has, not any 501(c)(3) nonprofit.
+    if governmental_issuer:
+        eligible.add(BondType.TAN)
+    # VRDO — needs a liquidity facility (LOC/SBPA) to be economical, which
+    # in practice means a large enough issue to justify the facility fee.
+    if nonprofit and (bond_face == 0 or bond_face >= 10_000_000):
+        eligible.add(BondType.VRDO)
+    # Bridge-to-Permanent — pre-stabilization deals (real estate or muni)
+    # that will refinance into permanent long-term debt once stabilized;
+    # deals already at/above the A-grade DSCR bar wouldn't need a bridge.
+    if dscr < 1.75:
+        eligible.add(BondType.BRIDGE_TO_PERMANENT)
+
     # Ticket 20: sector resolution for the suitability_score sector-fit term
     # below. Explicit "sector" key wins if supplied; otherwise resolved from
     # NAICS via REVENUE_SECTOR_REGISTRY/resolve_sector().
@@ -387,7 +483,9 @@ def generate_all_bond_options(deal_data: dict, weights: dict | None = None) -> d
                 continue
 
             for par in par_candidates:
-                mat_yrs  = 5 if bt == BondType.BAN else (30 if at == AmortizationType.BULLET else 25)
+                mat_yrs  = _SHORT_TERM_MATURITY_YEARS.get(
+                    bt, 30 if at == AmortizationType.BULLET else 25
+                )
                 coupon   = calculate_coupon(bt, at, dscr, ltv, is_green)
                 schedule = generate_amortization_schedule(par, coupon, mat_yrs, at, noi, 1.25)
 
@@ -419,7 +517,7 @@ def generate_all_bond_options(deal_data: dict, weights: dict | None = None) -> d
                         1,
                     )
 
-                options.append({
+                option = {
                     "bond_type":           bt.value,
                     "amortization":        at.value,
                     "par_value":           par,
@@ -436,7 +534,13 @@ def generate_all_bond_options(deal_data: dict, weights: dict | None = None) -> d
                     "nest_fee_usd":        round(par * 0.0225, 0),
                     "schedule_preview":    schedule[:5],
                     "jpm_grade":           opba["jpm_benchmark"],
-                })
+                    "rate_type":           "variable" if bt == BondType.VRDO else "fixed",
+                }
+                if bt in ANTICIPATION_NOTE_SOURCE:
+                    option["anticipated_repayment_source"] = ANTICIPATION_NOTE_SOURCE[bt]
+                if bt == BondType.BRIDGE_TO_PERMANENT:
+                    option["bridge_conversion_triggers"] = BRIDGE_TO_PERMANENT_CONVERSION_TRIGGERS
+                options.append(option)
 
     options.sort(key=lambda x: x["suitability_score"], reverse=True)
 
