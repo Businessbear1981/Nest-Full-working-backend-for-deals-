@@ -475,6 +475,43 @@ class EagleEyeScanner:
             "scan_timestamp": datetime.utcnow().isoformat(),
         }
 
+    def scan_for_equity_partners(self, deal: dict) -> dict:
+        """
+        Ticket 11: gap-detection off a deal's sources_and_uses (real, as of
+        the intelligence_engine.size_ma_acquisition() fix that stops
+        silently over-levering past the sector's senior leverage ceiling),
+        following the same pattern as SuretyScout.match_providers() and
+        LenderScout.search_lenders() — score/rank a real counterparty
+        roster against deal criteria.
+
+        The scoring/matching half of that pattern is NOT implemented here:
+        there is no real, verified equity-partner roster in this codebase
+        to match against (family offices, credit funds, pensions, insurers
+        with real AUM/ticket-size/sector-preference data). Inventing one
+        would repeat exactly the Hawkeye BUYER_UNIVERSE bug (Ticket 14) —
+        fictional names presented as real counterparties. Candidate-list
+        sourcing is real business-development work, out of scope here.
+        """
+        su = deal.get("sources_and_uses", {})
+        equity_gap = su.get("equity_gap_usd", 0)
+        has_gap = su.get("has_equity_gap", equity_gap > 0)
+
+        result = {
+            "deal_id": deal.get("id", deal.get("deal_id", "")),
+            "has_equity_gap": has_gap,
+            "equity_gap_usd": equity_gap,
+            "matched_partners": [],
+            "candidate_sourcing_status": "not_built",
+            "note": (
+                "No verified equity-partner roster exists in this codebase to match "
+                "against — this returns the real capital gap only, not fabricated "
+                "counterparties. See Ticket 11/14 in the build brief."
+            ),
+        }
+        if not has_gap:
+            result["note"] = "No equity gap detected for this deal — sources_and_uses balances within the senior leverage ceiling."
+        return result
+
     def detect_signals(self, property_data: dict) -> list[dict]:
         """Given property data, detect what signals are present."""
         signals = []

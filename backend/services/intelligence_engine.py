@@ -166,9 +166,6 @@ class IntelligenceEngine:
         bond_needed = ev - sponsor_equity - rollover - seller_note
         bond_amount = min(bond_needed, max_senior_bond)
 
-        # Total leverage
-        total_leverage = (bond_amount + seller_note) / ebitda if ebitda else 0
-
         # Reserves
         annual_debt_service = bond_amount * 0.085  # estimated at indicative coupon
         dsrf = annual_debt_service  # MADS
@@ -182,11 +179,25 @@ class IntelligenceEngine:
         total_sources = bond_amount + seller_note + sponsor_equity + rollover
         total_uses = equity_value + net_debt + tx_expenses + closing_reserves + coi + wc_cushion
 
-        # Balance check — adjust bond if needed
+        # Balance check — adjust bond if needed, but never past the sector's
+        # real senior leverage ceiling (Ticket 11). Previously this added
+        # the full gap to bond_amount unconditionally, which could silently
+        # push total_leverage past max_senior_bond/max_total_leverage. Any
+        # shortfall the ceiling won't let debt cover is a genuine capital
+        # stack gap — real equity is needed, not more bond capacity.
         gap = total_uses - total_sources
+        equity_gap = 0.0
         if gap > 0:
-            bond_amount += gap
-            total_sources += gap
+            debt_headroom = max(0.0, max_senior_bond - bond_amount)
+            debt_increase = min(gap, debt_headroom)
+            bond_amount += debt_increase
+            total_sources += debt_increase
+            equity_gap = gap - debt_increase
+
+        # Total leverage — computed from the final, ceiling-respecting
+        # bond_amount (moved here so it can't go stale relative to the
+        # balance-check adjustment above).
+        total_leverage = (bond_amount + seller_note) / ebitda if ebitda else 0
 
         sources = {
             "senior_bond": round(bond_amount),
@@ -234,7 +245,17 @@ class IntelligenceEngine:
                 "leverage_headroom": round(leverage_data["total"] - total_leverage, 2),
                 "equity_pct_of_ev": round(sponsor_pct * 100, 1),
             },
-            "sources_and_uses": {"sources": sources, "uses": uses, "balanced": abs(total_sources - total_uses) < 1},
+            "sources_and_uses": {
+                "sources": sources, "uses": uses,
+                "balanced": abs(total_sources - total_uses) < 1,
+                # Ticket 11: a real, unfunded capital stack gap — sources
+                # couldn't be balanced without exceeding the sector's senior
+                # leverage ceiling. This needs real equity, not more bond
+                # capacity; previously this case was hidden by unconditionally
+                # over-levering the bond past its own max_senior_bond.
+                "equity_gap_usd": round(equity_gap),
+                "has_equity_gap": equity_gap > 0,
+            },
             "bond_structure": {
                 "type": "taxable_senior_secured",
                 "principal": round(bond_amount),
