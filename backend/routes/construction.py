@@ -128,10 +128,6 @@ _DEALS: dict[str, dict] = {
     }
 }
 
-# Default deal ID (Convivial St Pete)
-_DEFAULT_DEAL = "convivial-st-pete"
-
-
 def _ok(data, code=200):
     return jsonify({
         "success": True,
@@ -166,24 +162,65 @@ def list_construction_deals():
     ])
 
 
+def _live_deal_by_id(deal_id: str) -> dict | None:
+    """Look up one real deal in Supabase by its actual id. None if not found/unavailable."""
+    if not (_db and _db.configured):
+        return None
+    try:
+        row = _db.select("deals", {"id": f"eq.{deal_id}"}, single=True)
+        return row or None
+    except Exception:
+        return None
+
+
 @construction_bp.get("/deals/<deal_id>/summary")
 def get_deal_summary(deal_id: str):
-    """Return full construction summary — milestones, draws, change orders, stats."""
-    deal = _DEALS.get(deal_id) or _DEALS.get(_DEFAULT_DEAL)
-    return _ok({
-        "id": deal["id"],
-        "name": deal["name"],
-        "stats": deal["stats"],
-        "milestones": deal["milestones"],
-        "draws": deal["draws"],
-        "change_orders": deal["change_orders"],
-    })
+    """Return full construction summary — milestones, draws, change orders, stats.
+    Only the known demo fixture (convivial-st-pete) returns fixture data. Any
+    other deal_id is looked up for real in Supabase; construction milestone/
+    draw tracking has no real table backing it yet, so a live deal gets its
+    real stats with honestly empty milestones/draws until that's built —
+    never another deal's fixture data. Unknown deal_id is a real 404.
+    """
+    deal = _DEALS.get(deal_id)
+    if deal:
+        return _ok({
+            "id": deal["id"],
+            "name": deal["name"],
+            "stats": deal["stats"],
+            "milestones": deal["milestones"],
+            "draws": deal["draws"],
+            "change_orders": deal["change_orders"],
+        })
+    row = _live_deal_by_id(deal_id)
+    if row:
+        summary = _row_to_construction(row)
+        return _ok({
+            "id": summary["deal_id"],
+            "name": summary["deal_name"],
+            "stats": {
+                "total_budget_usd": summary["bond_face"],
+                "overall_pct": summary["draw_pct"] * 100,
+                "schedule_status": summary["status"].upper(),
+            },
+            "milestones": [],
+            "draws": [],
+            "change_orders": [],
+            "note": "Construction milestone/draw-level tracking is not yet built for live deals — only summary stats are real. See docs/NEST_GLOSSARY.md.",
+        })
+    return _err(f"Construction deal {deal_id} not found", 404)
 
 
 @construction_bp.patch("/deals/<deal_id>/milestones/<milestone_id>")
 def patch_milestone(deal_id: str, milestone_id: str):
-    """Update milestone completion percentage."""
-    deal = _DEALS.get(deal_id) or _DEALS.get(_DEFAULT_DEAL)
+    """Update milestone completion percentage. Fixture deal only — live deals
+    have no real milestone table to patch yet (honest 501, not a silent no-op
+    against fixture data under someone else's real deal_id)."""
+    deal = _DEALS.get(deal_id)
+    if not deal:
+        if _live_deal_by_id(deal_id):
+            return _err("Milestone tracking not yet built for live deals", 501)
+        return _err(f"Construction deal {deal_id} not found", 404)
     body = request.get_json(silent=True) or {}
     pct = body.get("completion_pct")
     if pct is None:
@@ -199,8 +236,14 @@ def patch_milestone(deal_id: str, milestone_id: str):
 
 @construction_bp.patch("/deals/<deal_id>/draws/<draw_id>")
 def patch_draw(deal_id: str, draw_id: str):
-    """Update draw status (pending → funded)."""
-    deal = _DEALS.get(deal_id) or _DEALS.get(_DEFAULT_DEAL)
+    """Update draw status (pending → funded). Fixture deal only — see
+    patch_milestone for why live deals honestly 501 instead of silently
+    mutating fixture data under the wrong deal_id."""
+    deal = _DEALS.get(deal_id)
+    if not deal:
+        if _live_deal_by_id(deal_id):
+            return _err("Draw tracking not yet built for live deals", 501)
+        return _err(f"Construction deal {deal_id} not found", 404)
     body = request.get_json(silent=True) or {}
     status = body.get("status")
     if not status:
