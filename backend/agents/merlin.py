@@ -41,6 +41,15 @@ try:
 except ImportError:
     jimmy_lee = None
 
+# Ticket 18 consolidation: real EDGAR scanning delegates to SignalEngine
+# (the real base of the scanning cluster) instead of a fifth independent
+# EDGAR client.
+try:
+    from services.signal_engine import SignalEngine
+    _signal_engine = SignalEngine()
+except ImportError:
+    _signal_engine = None
+
 
 # NAICS priority tiers for NEST acquisition strategy
 # Tier 1: +8 score bonus | Tier 2: +4 bonus | Tier 3: +1 bonus
@@ -529,43 +538,44 @@ Provide:
     # ------------------------------------------------------------------ #
 
     def scan_edgar_for_targets(self, naics_codes: list = None, min_revenue: float = 2_000_000,
-                                max_revenue: float = 50_000_000) -> dict:
+                                max_revenue: float = 50_000_000, allow_synthetic: bool = False) -> dict:
         """
-        Scan EDGAR (via Jimmy Lee service) for acquisition targets by NAICS.
-        Falls back to synthetic data if service unavailable.
+        Scan EDGAR for acquisition targets by NAICS, via SignalEngine — the
+        real, consolidated base of the scanning cluster (Ticket 18).
+
+        Previously this silently generated entirely fabricated companies
+        ("Landscaping Co #1", random revenue/EBITDA) merged into the same
+        `targets` list whenever the real EDGAR path returned nothing —
+        which, since it queried by translated sector *name* rather than
+        NAICS code, was the common case. That fallback now requires
+        allow_synthetic=True and every synthetic target is tagged
+        is_demo=True so it can't be mistaken for a real filing.
         """
         if naics_codes is None:
             naics_codes = list(NAICS_PRIORITY["tier1"]["codes"].keys())
 
         targets = []
 
-        if jimmy_lee is not None:
+        if _signal_engine is not None:
             try:
-                for code in naics_codes:
-                    sector_name = ""
-                    for tier_data in NAICS_PRIORITY.values():
-                        if code in tier_data["codes"]:
-                            sector_name = tier_data["codes"][code]
-                            break
-                    if not sector_name:
-                        continue
-                    result = jimmy_lee.execute(company=sector_name, filing_type="10-K")
-                    if result.get("success") and result.get("filings"):
-                        for filing in result["filings"]:
-                            targets.append({
-                                "name": filing.get("name", "Unknown"),
-                                "naics": code,
-                                "sector": sector_name,
-                                "source": "edgar_filing",
-                                "form": filing.get("form", ""),
-                                "filing_date": filing.get("date", ""),
-                                "url": filing.get("url", ""),
-                            })
+                raw = _signal_engine.scan_edgar_ma_targets(naics_codes=naics_codes)
+                for sig in raw:
+                    targets.append({
+                        "name": sig.get("entity", "Unknown"),
+                        "naics": sig.get("naics_hint", ""),
+                        "sector": "",
+                        "source": "edgar_filing",
+                        "form": sig.get("form_type", ""),
+                        "filing_date": sig.get("filing_date", ""),
+                        "url": sig.get("edgar_url", ""),
+                        "is_demo": False,
+                    })
             except Exception:
                 pass
 
-        # If no external results, generate synthetic scan results
-        if not targets:
+        # Fabricated data — opt-in only, always tagged, never a silent
+        # fallback for "the real scan came back empty."
+        if not targets and allow_synthetic:
             sectors = ["Landscaping", "HVAC", "Plumbing", "Janitorial", "Auto Repair",
                         "Electrical", "Waste Collection", "Home Health"]
             for i, code in enumerate(naics_codes[:8]):
@@ -581,6 +591,7 @@ Provide:
                     "ebitda_margin": round(margin, 3),
                     "ev_usd": round(rev * margin * random.uniform(4, 7), 0),
                     "source": "synthetic_scan",
+                    "is_demo": True,
                 })
 
         return {
@@ -589,6 +600,7 @@ Provide:
             "revenue_range": [min_revenue, max_revenue],
             "targets_found": len(targets),
             "targets": targets,
+            "is_demo_data": allow_synthetic and any(t.get("is_demo") for t in targets),
         }
 
     # ------------------------------------------------------------------ #

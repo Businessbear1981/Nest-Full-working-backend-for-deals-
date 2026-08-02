@@ -6,10 +6,21 @@ Pipeline:
   Node 2 (Qualification) — scores every signal against NEST benchmarks
   Node 3 (Action) — routes qualified signals to the right desk
 
+Ticket 18 consolidation: this is the real base of the scanning/signal
+cluster — the strongest qualification/routing logic of the four
+independent EDGAR implementations that used to exist. EagleEyeScanner's
+broader FRED market-context, sector-comparable EDGAR search, and
+maturity-wall coverage are merged in below (scan_sector_comparables(),
+get_fred_market_context(), scan_maturity_wall()) rather than left as a
+separate, unscored data source. AutonomousScanner and MerlinAgent now
+delegate their EDGAR scanning here instead of maintaining their own
+httpx clients — see services/autonomous_scanner.py and agents/merlin.py.
+
 No imports from routes/. Uses only httpx and stdlib.
 """
 from __future__ import annotations
 
+import os
 import re
 import time
 import uuid
@@ -35,6 +46,39 @@ _EDGAR_HEADERS = {
 _TARGET_NAICS = {"623", "621", "531", "518"}
 
 _HOT_STATES = {"TX", "FL", "CA", "WA", "OR", "CO", "AZ"}
+
+# Ported from EagleEyeScanner.search_edgar_comparables() — sector-specific
+# search terms for EDGAR full-text comparable filing search.
+_SECTOR_COMPARABLE_TERMS = {
+    "senior_living": '"senior living" OR "continuing care retirement" OR "CCRC"',
+    "healthcare": '"healthcare" OR "hospital" OR "medical center"',
+    "multifamily": '"multifamily" OR "apartment complex" OR "residential rental"',
+    "data_centers": '"data center" OR "colocation facility"',
+    "industrial": '"industrial park" OR "warehouse" OR "logistics center"',
+}
+
+# Real reference figures on the construction/bridge loan maturity wall —
+# ported from EagleEyeScanner.scan_maturity_wall(). Static market-context
+# data, not a live scan (same nature as emma_engine's sector defaults).
+_MATURITY_WALL_CONTEXT = {
+    "total_maturities_2026": 162_100_000_000,
+    "total_maturities_2027": 167_700_000_000,
+    "multifamily_share": 0.33,
+}
+_MATURITY_WALL_MARKET_DATA = {
+    "austin": {
+        "market": "Austin, TX",
+        "vacancy_rate": 0.142,
+        "concession_weeks": "6-12",
+        "modified_loan_share": "above national average",
+        "outlook": "Gradual recovery late 2026-2027",
+        "distressed_signals": [
+            {"type": "construction_exit", "description": "Multiple new builds below 80% occupancy"},
+            {"type": "maturity_wall", "description": "Banks extending maturities hoping for recovery"},
+            {"type": "distressed", "description": "Concessions 6-12 weeks indicate absorption challenges"},
+        ],
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -405,6 +449,104 @@ class SignalEngine:
 
         return self._cached(cache_key, _fetch, ttl=1800)
 
+    def scan_sector_comparables(self, sector: str, state: str = "",
+                                min_amount: int = 0, max_amount: int = 0) -> list[dict]:
+        """
+        Ported from EagleEyeScanner.search_edgar_comparables() — sector-
+        keyword EDGAR full-text search for comparable filings, now flowing
+        through the same qualification/routing pipeline as every other
+        signal instead of returning an unscored raw list.
+        Returns list of raw signal dicts (raw_score=0.0).
+        """
+        search_term = _SECTOR_COMPARABLE_TERMS.get(sector, f'"{sector}"')
+        hits = self._edgar_search({
+            "q": search_term,
+            "forms": "8-K,S-11,424B5",
+            "dateRange": "custom",
+            "startdt": "2023-01-01",
+            "enddt": "2026-12-31",
+        })
+
+        results: list[dict] = []
+        for hit in hits[:10]:
+            base = self._parse_edgar_hit(hit)
+            if state and base["state"] and base["state"] != state:
+                continue
+            results.append({
+                "signal_type": "sector_comparable",
+                "entity": base["entity"],
+                "filing_date": base["filing_date"],
+                "form_type": base["form_type"],
+                "state": base["state"],
+                "sector": sector,
+                "trigger_event": "comparable_filing",
+                "edgar_url": base["edgar_url"],
+                "snippet": base["snippet"],
+                "raw_score": 0.0,
+            })
+
+        return results
+
+    def get_fred_market_context(self) -> dict:
+        """
+        Ported from EagleEyeScanner.get_fred_market_context() — live rate
+        environment context from FRED (10yr treasury, 30yr mortgage, CRE
+        delinquency rate). Cached 15 minutes. Returns {} without FRED_API_KEY
+        or on any fetch error — same fail-open behavior as the original.
+        """
+        cache_key = "fred:market_context"
+        cached = self._cache.get(cache_key)
+        if cached and time.time() < cached[1]:
+            return cached[0]
+
+        api_key = os.environ.get("FRED_API_KEY", "")
+        if not api_key:
+            return {}
+
+        def _fetch_series(series_id: str) -> float:
+            resp = self._http().get(
+                "https://api.stlouisfed.org/fred/series/observations",
+                params={
+                    "series_id": series_id, "api_key": api_key,
+                    "sort_order": "desc", "limit": "1", "file_type": "json",
+                },
+                timeout=10,
+            )
+            resp.raise_for_status()
+            obs = resp.json().get("observations", [])
+            if not obs or obs[0].get("value", ".") == ".":
+                raise ValueError(f"No usable observation for {series_id}")
+            return float(obs[0]["value"])
+
+        try:
+            data = {
+                "ten_yr_treasury": _fetch_series("DGS10"),
+                "mortgage_30yr": _fetch_series("MORTGAGE30US"),
+                "cre_delinquency": _fetch_series("DRCRLACBS"),
+                "fetched_at": _utcnow(),
+            }
+        except Exception:
+            return {}
+
+        self._cache[cache_key] = (data, time.time() + 900)
+        return data
+
+    def scan_maturity_wall(self, market: str = None) -> dict:
+        """
+        Ported from EagleEyeScanner.scan_maturity_wall() — real reference
+        figures on the construction/bridge loan maturity wall. Aggregate
+        market context, not a per-entity signal, so it doesn't flow through
+        qualify_signals()/route_signal() the way entity-level signals do.
+        """
+        wall = dict(_MATURITY_WALL_CONTEXT, distressed_signals=[], perm_ready_signals=[])
+        market_key = (market or "").strip().lower()
+        market_data = _MATURITY_WALL_MARKET_DATA.get(market_key) or (
+            _MATURITY_WALL_MARKET_DATA.get("austin") if market_key in ("austin tx", "texas") else None
+        )
+        if market_data:
+            wall.update(market_data)
+        return wall
+
     # ==================================================================
     # NODE 2 — QUALIFICATION ENGINE
     # ==================================================================
@@ -436,6 +578,11 @@ class SignalEngine:
                 score = 0.5
                 grade = "WARM"
                 desk = "bond_desk"
+
+            elif stype == "sector_comparable":
+                score = self._score_sector_comparable(signal)
+                grade = "HOT" if score >= 0.6 else "WARM" if score >= 0.3 else "COLD"
+                desk = "cre"
 
             else:
                 score = 0.0
@@ -508,6 +655,36 @@ class SignalEngine:
 
         return score
 
+    def _score_sector_comparable(self, signal: dict) -> float:
+        """Score a sector-comparable EDGAR filing (from scan_sector_comparables()).
+        Real signal, same qualification treatment as ma_target/cre_bond_issuance —
+        this data used to come back unscored from EagleEyeScanner."""
+        score = 0.0
+
+        # Larger/more formal disclosure forms carry more weight
+        form = signal.get("form_type", "")
+        if form == "S-11":  # REIT registration — real capital-raise intent
+            score += 0.3
+        elif form == "424B5":  # prospectus supplement — active offering
+            score += 0.25
+        elif form == "8-K":  # material event — could be anything, lower weight
+            score += 0.15
+
+        # Sector explicitly matched (not a generic fallback query)
+        if signal.get("sector") in _SECTOR_COMPARABLE_TERMS:
+            score += 0.2
+
+        # Hot-state filter, same real markets as CRE scoring
+        if signal.get("state", "") in _HOT_STATES:
+            score += 0.2
+
+        # Recent filing (within 12 months)
+        days = _days_since(signal.get("filing_date", ""))
+        if 0 <= days <= 365:
+            score += 0.2
+
+        return score
+
     # ==================================================================
     # NODE 3 — ACTION ROUTER
     # ==================================================================
@@ -544,16 +721,25 @@ class SignalEngine:
     # MAIN PIPELINE
     # ==================================================================
 
-    def run_signal_pipeline(self, max_signals: int = 50) -> dict:
+    def run_signal_pipeline(self, max_signals: int = 50, sectors: list[str] = None) -> dict:
         """
         Run full three-node pipeline.
         Returns a summary dict plus the list of qualified + routed signals.
+
+        sectors: optional list of REVENUE_SECTOR_REGISTRY-style sector keys
+        (e.g. ["senior_living", "healthcare"]) to also pull EagleEyeScanner-
+        merged sector-comparable signals for, on top of the standard
+        MA/CRE/permit scan. Backward compatible — omitted or empty means
+        the original three sources only.
         """
         # ---- Node 1: Origination ----
         ma_signals = self.scan_edgar_ma_targets()
         cre_signals = self.scan_edgar_cre_events()
         permit_signals = self.scan_construction_permits()
-        all_signals = (ma_signals + cre_signals + permit_signals)[:max_signals]
+        comparable_signals: list[dict] = []
+        for sector in (sectors or []):
+            comparable_signals.extend(self.scan_sector_comparables(sector))
+        all_signals = (ma_signals + cre_signals + permit_signals + comparable_signals)[:max_signals]
 
         # ---- Node 2: Qualification ----
         qualified_all = self.qualify_signals(all_signals)

@@ -1,9 +1,16 @@
 """
 Autonomous Scanner — The Intelligence Loop.
 
-Runs on a schedule. Pulls signals from real sources (EDGAR, FRED, Chrome).
+Runs on a schedule. Pulls FRED rate-movement signals and EDGAR filings.
 Feeds them into the Convergence Engine. Has Claude analyze findings.
 Surfaces HEAT events without any human input.
+
+Ticket 18 consolidation: EDGAR scanning now delegates to SignalEngine (the
+real base of the scanning cluster — see services/signal_engine.py) instead
+of maintaining its own separate httpx-based EDGAR client. FRED scanning
+stays here — it does real delta/movement detection (>=3bps moves) across
+consecutive observations, which is genuinely different from SignalEngine's
+get_fred_market_context() point-in-time snapshot, not a duplicate of it.
 
 This is the brain that never sleeps.
 """
@@ -18,6 +25,8 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
+
+from services.signal_engine import SignalEngine
 
 
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -63,8 +72,9 @@ class AutonomousScanner:
     feeds results into the convergence engine.
     """
 
-    def __init__(self, convergence_engine: Any = None) -> None:
+    def __init__(self, convergence_engine: Any = None, signal_engine: SignalEngine = None) -> None:
         self._convergence = convergence_engine
+        self._signals = signal_engine or SignalEngine()
         self._scan_log: list[dict[str, Any]] = []
         self._findings: list[dict[str, Any]] = []
         self._running = False
@@ -191,51 +201,32 @@ class AutonomousScanner:
         return signals
 
     def _scan_edgar(self) -> list[dict[str, Any]]:
-        """Pull recent SEC EDGAR filings. Looks for Form D (equity raises), 8-K (material events), SC 13D (ownership changes)."""
-        signals = []
-        forms = ["D", "8-K", "SC 13D"]
+        """Pull recent SEC EDGAR filings via SignalEngine — merger/
+        acquisition agreements, Schedule 13D ownership changes, and
+        revenue-size 10-K indicators (scan_edgar_ma_targets()), plus
+        ground-lease/land-acquisition/bond-issuance CRE events
+        (scan_edgar_cre_events()). Previously ran its own separate EDGAR
+        full-text search client — now delegates to the real base of the
+        scanning cluster instead of duplicating it."""
+        signals: list[dict[str, Any]] = []
 
         try:
-            with httpx.Client(timeout=15) as c:
-                for form_type in forms:
-                    r = c.get(
-                        "https://efts.sec.gov/LATEST/search-index",
-                        params={
-                            "q": f'root_forms:"{form_type}"',
-                            "from": "0",
-                            "size": "5",
-                        },
-                        headers={"User-Agent": "NEST Advisors research@nestadvisors.ai"},
-                    )
+            raw = self._signals.scan_edgar_ma_targets() + self._signals.scan_edgar_cre_events()
+            for sig in raw:
+                state = sig.get("state", "")
+                signals.append({
+                    "id": f"edgar-{sig.get('signal_type', 'sec')}-{sig.get('entity', '')}-{sig.get('filing_date', '')}",
+                    "type": sig.get("trigger_event") or sig.get("signal_type", "sec_filing"),
+                    "entity": sig.get("entity", "Unknown"),
+                    "location": f"{state}, US" if state else "US",
+                    "date": _now(),
+                    "details": sig.get("snippet") or f"SEC {sig.get('form_type', '')} filed by {sig.get('entity', 'Unknown')}",
+                    "state": state or "US",
+                    "source": "SEC EDGAR",
+                    "data": {"form_type": sig.get("form_type", ""), "edgar_url": sig.get("edgar_url", "")},
+                })
 
-                    if r.status_code == 200:
-                        data = r.json()
-                        hits = data.get("hits", {}).get("hits", [])
-                        for hit in hits[:5]:
-                            source = hit.get("_source", {})
-                            names = source.get("display_names", [])
-                            entity_name = names[0].split("(CIK")[0].strip() if names else "Unknown"
-                            state = source.get("biz_state", source.get("state_of_incorp", ""))
-
-                            signal_type = {
-                                "D": "equity_raise",
-                                "8-K": "8k_filing",
-                                "SC 13D": "sc13d_filing",
-                            }.get(form_type, "sec_filing")
-
-                            signals.append({
-                                "id": f"edgar-{form_type.replace(' ', '')}-{hit.get('_id', '')}",
-                                "type": signal_type,
-                                "entity": str(entity_name),
-                                "location": f"{state}, US" if state else "US",
-                                "date": _now(),
-                                "details": f"SEC {form_type} filed by {entity_name}" + (f" in {state}" if state else ""),
-                                "state": state or "US",
-                                "source": "SEC EDGAR",
-                                "data": {"form_type": form_type, "filing_id": hit.get("_id", "")},
-                            })
-
-            self._log("EDGAR SCANNED", f"{len(signals)} filings found ({', '.join(forms)})")
+            self._log("EDGAR SCANNED", f"{len(signals)} filings found (via SignalEngine)")
         except Exception as e:
             self._log("EDGAR ERROR", str(e))
 
