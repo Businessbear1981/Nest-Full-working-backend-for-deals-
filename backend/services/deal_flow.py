@@ -137,18 +137,53 @@ class DealFlow:
         return deal
 
     def run_structuring(self, deal: dict) -> dict:
-        """Stage 4: Structuring. Finalize covenants, terms."""
+        """Stage 4: Structuring. Real bond-type/amortization/tenor selection
+        via bond_type_engine.py's generate_all_bond_options() (16 bond types,
+        sector-aware suitability, real amortization math) -- previously this
+        read deal.get("bond_type", "taxable_senior_secured"), a field nothing
+        upstream ever set, so every deal silently got the same hardcoded
+        default regardless of its real profile. Then covenant terms."""
+        from services.bond_type_engine import generate_all_bond_options
+
+        bond_options_input = {
+            "noi": deal.get("noi", 0),
+            "dscr": deal.get("dscr", 0) or 1.35,
+            "ltv": deal.get("ltv", 70),
+            "bond_face": deal.get("bond_amount", 0),
+            "green_bond": deal.get("green_bond", False),
+            "liquidity_ratio": deal.get("liquidity_ratio", 0.80),
+            "naics_code": deal.get("naics_code", ""),
+            # NOT deal.get("stage") -- this file overwrites deal["stage"]
+            # with pipeline-progress markers ("intake_complete",
+            # "credit_complete"...) elsewhere in this class. That's a
+            # different concept from bond_type_engine's real construction/
+            # development stage (pre_development, etc.), so it reads a
+            # distinct field to avoid silently corrupting bond-type
+            # eligibility with the wrong "stage".
+            "stage": deal.get("development_stage", ""),
+            "borrower_type": deal.get("borrower_type", ""),
+            "sector": deal.get("sector", ""),
+        }
+        bond_options = generate_all_bond_options(bond_options_input)
+        top = bond_options["recommendations"][0] if bond_options["recommendations"] else None
+        if top:
+            deal["bond_type"] = top["bond_type"]
+            deal["amortization"] = top["amortization"]
+            deal["tenor_years"] = top["maturity_years"]
+
         covenant_package = self.intel.build_covenant_package(
             deal.get("deal_type", "ma_acquisition"),
             deal.get("credit_grade", "BBB"),
             deal.get("sector", "business_services"),
         )
         deal["covenant_package"] = covenant_package
+        deal["bond_type_options"] = bond_options
         deal.setdefault("desk_outputs", {})["structuring"] = {
             "covenant_package": covenant_package,
             "bond_type": deal.get("bond_type", "taxable_senior_secured"),
             "amortization": deal.get("amortization", "io_then_amort"),
             "tenor_years": deal.get("tenor_years", 7),
+            "bond_type_recommendations": bond_options["recommendations"],
         }
         deal["stage"] = "structuring_complete"
         deal["stage_timestamp"] = datetime.utcnow().isoformat()
