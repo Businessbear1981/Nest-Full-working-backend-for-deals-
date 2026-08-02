@@ -748,14 +748,65 @@ _CRE_FALLBACK_PROPERTIES = [
 ]
 
 
+def _build_cre_heatmap_from_real_signals(cre_signals: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Aggregate real, qualified SignalEngine signals into state summaries
+    and top properties — replaces asking Claude to invent a heatmap from a
+    generic prompt with no grounding in actual scanned data."""
+    by_state: dict[str, list[dict]] = {}
+    for sig in cre_signals:
+        state = sig.get("state") or "US"
+        by_state.setdefault(state, []).append(sig)
+
+    states_data = []
+    for state, sigs in by_state.items():
+        top = max(sigs, key=lambda s: s.get("nest_score", 0))
+        states_data.append({
+            "state": state,
+            "heat_score": round(max(s.get("nest_score", 0) for s in sigs) * 100),
+            "signal_count": len(sigs),
+            "pipeline_usd": 0,  # real dollar figures aren't in EDGAR text signals — not fabricated
+            "top_signal": top.get("snippet") or top.get("entity", ""),
+            "deal_types": sorted({s.get("sector", s.get("signal_type", "")) for s in sigs if s.get("sector") or s.get("signal_type")}),
+        })
+    states_data.sort(key=lambda s: s["heat_score"], reverse=True)
+
+    top_properties = []
+    for sig in sorted(cre_signals, key=lambda s: s.get("nest_score", 0), reverse=True)[:10]:
+        top_properties.append({
+            "name": sig.get("entity", "Unknown"),
+            "asset_type": sig.get("sector") or sig.get("signal_type", ""),
+            "state": sig.get("state", ""),
+            "city": "",
+            "signal_type": sig.get("trigger_event", sig.get("signal_type", "")),
+            "loan_amount_usd": None,  # not fabricated — real EDGAR text signals don't carry this
+            "maturity_months": None,
+            "estimated_noi_usd": None,
+            "opportunity_score": round(sig.get("nest_score", 0) * 100),
+            "thesis": sig.get("snippet", ""),
+            "source_url": sig.get("edgar_url", ""),
+        })
+
+    return states_data, top_properties
+
+
 @eagleeye_bp.route("/cre-heatmap", methods=["GET"])
 def cre_heatmap():
     """
     CRE distressed-property heat map — bridge maturities, dark zones, refi signals.
     Returns state-level summaries and top property targets.
 
-    When Claude call fails, returns static fallback data with source="fallback"
-    so the frontend can display a data-source notice.
+    Built from real, qualified SignalEngine signals across the full sector
+    registry (senior living, hospitals, multifamily, hospitality, data
+    centers, industrial, retail, office, and more — see
+    signal_engine._SECTOR_COMPARABLE_TERMS) — not a Claude free-invention.
+    Previously this asked Claude to fabricate a heat map from a generic
+    prompt with no real data behind it, and fell back to the same static
+    5-property, 4/5-senior-living list whenever Claude was unavailable
+    (e.g. no ANTHROPIC_API_KEY configured) — which is why the same few
+    names (Jacaranda Trace, Convivial St. Petersburg, etc.) kept showing
+    up regardless of actual signal activity. Static fallback now only
+    fires when the real scan genuinely returns nothing, and is labeled
+    source="fallback" so the frontend can show a data-source notice.
     """
     refresh = request.args.get("refresh", "false").lower() == "true"
 
@@ -765,52 +816,23 @@ def cre_heatmap():
             if (datetime.utcnow() - cached["ts"]).seconds < 900:
                 return _ok(cached["data"])
 
-    # Pull current signals for context
-    with _lock:
-        cre_signals = [
-            s for s in _signals_fallback
-            if s.get("naics", "").startswith("62") or s.get("status") in ("hot", "warm")
-        ]
-
-    system_prompt = (
-        "You are a CRE distressed asset analyst at NEST Advisors. "
-        "Return ONLY valid JSON, no markdown fences."
-    )
-    user_prompt = (
-        "Generate a CRE distressed-property heat map for NEST deal sourcing. "
-        "Focus on: (1) bridge loans maturing 6-18 months, "
-        "(2) CMBS special servicing, (3) stabilized refi opportunities. "
-        "Asset classes: senior living, multifamily, industrial, retail, hospitality. "
-        f"Target states: {', '.join(CRE_STATES[:10])}. "
-        "Return JSON with two keys: "
-        '"states" (array of 10 state objects, each with: '
-        '"state" (2-letter), "heat_score" (int 1-100), '
-        '"signal_count" (int), "pipeline_usd" (int), '
-        '"top_signal" (str, one sentence), '
-        '"deal_types" (array of str)); '
-        '"top_properties" (array of 5 property objects, each with: '
-        '"name" (str), "asset_type" (str), "state" (2-letter), "city" (str), '
-        '"signal_type" ("bridge_maturing"|"stabilized_refi"|"distressed"|"cmbs_watch"), '
-        '"loan_amount_usd" (int), "maturity_months" (int or null), '
-        '"estimated_noi_usd" (int), "opportunity_score" (int 1-100), '
-        '"thesis" (str, one sentence)). '
-        "Sort states by heat_score desc, properties by opportunity_score desc."
-    )
-
     states_data = []
     top_properties = []
-    data_source = "claude"
+    data_source = "real_signals"
 
     try:
-        raw = complete(system_prompt, user_prompt, max_tokens=2000)
-        parsed = json.loads(raw)
-        states_data = parsed.get("states", [])
-        top_properties = parsed.get("top_properties", [])
-        if not states_data:
-            raise ValueError("Claude returned empty states array")
+        from services.signal_engine import SignalEngine, _SECTOR_COMPARABLE_TERMS
+        engine = SignalEngine()
+        # Full sector registry, not the old 5-sector slice.
+        cre_sectors = [s for s in _SECTOR_COMPARABLE_TERMS if s != "healthcare"]  # "hospitals" covers this more precisely
+        pipeline = engine.run_signal_pipeline(max_signals=200, sectors=cre_sectors)
+        cre_signals = [s for s in pipeline.get("signals", []) if s.get("desk") == "cre"]
+        if cre_signals:
+            states_data, top_properties = _build_cre_heatmap_from_real_signals(cre_signals)
+        else:
+            raise ValueError("Real signal scan returned no qualified CRE signals")
     except Exception as exc:
-        # Log the real error — don't silently swallow it
-        logger.warning("CRE heatmap Claude call failed (%s) — serving static fallback", exc)
+        logger.warning("CRE heatmap real-signal scan failed or empty (%s) — serving static fallback", exc)
         states_data = _CRE_FALLBACK_STATES
         top_properties = _CRE_FALLBACK_PROPERTIES
         data_source = "fallback"
@@ -820,7 +842,7 @@ def cre_heatmap():
         "top_properties": top_properties,
         "total_pipeline_usd": sum(s.get("pipeline_usd", 0) for s in states_data),
         "total_signals": sum(s.get("signal_count", 0) for s in states_data),
-        "source": data_source,          # "claude" or "fallback"
+        "source": data_source,          # "real_signals" or "fallback"
         "timestamp": datetime.utcnow().isoformat(),
     }
     with _cre_lock:

@@ -38,23 +38,44 @@ _EDGAR_HEADERS = {
     "Accept": "application/json",
 }
 
-# NAICS codes NEST cares about:
-# 623 = Nursing & Residential Care
-# 621 = Ambulatory Health Care
-# 531 = Real Estate
-# 518 = Data Processing / Hosting
-_TARGET_NAICS = {"623", "621", "531", "518"}
+# NAICS codes NEST cares about — was 4 codes (nursing/health care, real
+# estate, data processing) covering a narrow slice of asset classes; a
+# real complaint traced back to this: the same few senior-living/CRE
+# fallback names surfaced constantly because nothing else was ever
+# actually being searched for. Reuses emma_engine.SECTOR_NAICS_MAP (the
+# same real registry bond_type_engine.py's REVENUE_SECTOR_REGISTRY is
+# built from) so this can't drift out of sync with what the rest of the
+# platform considers a real, covered sector.
+from services.emma_engine import SECTOR_NAICS_MAP
+
+_TARGET_NAICS = {code[:3] for codes in SECTOR_NAICS_MAP.values() for code in codes}
 
 _HOT_STATES = {"TX", "FL", "CA", "WA", "OR", "CO", "AZ"}
 
-# Ported from EagleEyeScanner.search_edgar_comparables() — sector-specific
-# search terms for EDGAR full-text comparable filing search.
+# Real search terms across every sector in SECTOR_NAICS_MAP — was 5 sectors
+# (senior_living, healthcare, multifamily, data_centers, industrial),
+# missing hospitals(separately from generic healthcare), charter/higher
+# education, hotels/hospitality, solid waste, water/sewer, electric power,
+# airports, and manufacturing entirely.
 _SECTOR_COMPARABLE_TERMS = {
     "senior_living": '"senior living" OR "continuing care retirement" OR "CCRC"',
+    "hospitals": '"hospital" OR "medical center" OR "healthcare system"',
     "healthcare": '"healthcare" OR "hospital" OR "medical center"',
+    "charter_schools": '"charter school"',
+    "higher_education": '"university" OR "college" OR "higher education"',
+    "affordable_multifamily": '"affordable housing" OR "low income housing tax credit" OR "LIHTC"',
+    "market_rate_multifamily": '"multifamily" OR "apartment complex" OR "residential rental"',
     "multifamily": '"multifamily" OR "apartment complex" OR "residential rental"',
+    "hotels_hospitality": '"hotel" OR "hospitality" OR "resort"',
     "data_centers": '"data center" OR "colocation facility"',
+    "solid_waste": '"solid waste" OR "landfill" OR "waste management facility"',
+    "water_sewer": '"water utility" OR "sewer system" OR "water and sewer"',
+    "electric_power": '"electric utility" OR "power generation" OR "public power"',
+    "airports": '"airport" OR "aviation authority"',
+    "manufacturing": '"manufacturing facility" OR "industrial manufacturing plant"',
     "industrial": '"industrial park" OR "warehouse" OR "logistics center"',
+    "retail": '"retail center" OR "shopping center" OR "commercial retail"',
+    "office": '"office building" OR "office tower" OR "commercial office"',
 }
 
 # Real reference figures on the construction/bridge loan maturity wall —
