@@ -628,6 +628,122 @@ class EagleEyeScanner:
         except Exception:
             return []
 
+    def structure_pooled_offering(self, deals: list[dict], target_rating: str = None) -> dict:
+        """
+        Coordinated/pooled offering structuring for a cohort of real
+        comparable deals (the output of find_comparable_deals(), expanded
+        back to full deal records — not the summary rows). Codename
+        "Rico" in the agent registry (see docs/NEST_GLOSSARY.md) — the
+        underlying module is named neutrally on purpose.
+
+        Real math: aggregate par, par-weighted DSCR/LTV, weakest-link
+        blended rating, real arrangement-fee economics.
+
+        Deliberately does NOT justify pooling by a higher fee rate — that
+        is exactly the conflict of interest already found and fixed in
+        PhaseBondEngine (Ticket 16: "why_phase_bonds" used to cite NEST's
+        fee capture instead of the structure's real merits). Pooling here
+        charges the SAME per-dollar arrangement fee as a standalone deal
+        would get (bond_type_engine.py's real 2.25% convention); the real,
+        legitimate efficiency case is fewer independent transactions (one
+        rating submission, one enhancement negotiation, one legal/diligence
+        engagement instead of N), not a higher fee percentage.
+
+        Each item in `deals` needs at minimum: id/deal_id, name, and a par
+        amount (bond_face or par_value). dscr, ltv, rating, and debt
+        service inputs are used when present; nothing is fabricated for a
+        deal that's missing them.
+        """
+        if len(deals) < 3:
+            return {
+                "pool_size": len(deals),
+                "viable": False,
+                "note": "Fewer than 3 real comparable deals — not enough for a defensible pooled offering. See find_comparable_deals()'s coordinated_offering_viable flag.",
+            }
+
+        def _par(d: dict) -> float:
+            return float(d.get("bond_face") or d.get("par_value") or d.get("par") or 0)
+
+        pool = [{"deal_id": d.get("id", d.get("deal_id", "")), "name": d.get("name", ""), "par": _par(d), **d} for d in deals]
+        total_par = sum(p["par"] for p in pool)
+        if total_par <= 0:
+            return {
+                "pool_size": len(deals),
+                "viable": False,
+                "note": "No real par/bond_face data on the supplied deals — cannot size a pooled offering without it.",
+            }
+
+        def _weighted(field: str) -> float | None:
+            weighted_sum, weight_total = 0.0, 0.0
+            for p in pool:
+                val = p.get(field)
+                if val is None or p["par"] <= 0:
+                    continue
+                weighted_sum += float(val) * p["par"]
+                weight_total += p["par"]
+            return round(weighted_sum / weight_total, 3) if weight_total > 0 else None
+
+        weighted_dscr = _weighted("dscr")
+        weighted_ltv = _weighted("ltv")
+        weighted_leverage = _weighted("debt_to_ebitda")
+
+        # Weakest-link blended rating — conservative, defensible without a
+        # speculative pooling-uplift notching formula (the build brief
+        # explicitly flags ENHANCEMENT_RATING_MAP-style uplifts as
+        # unsourced Grok proposals, not fact — same discipline applies here).
+        ratings_present = [p["rating"] for p in pool if p.get("rating") in _RATING_ORDER]
+        blended_rating = None
+        if ratings_present:
+            worst_notch = max(_rating_notch(r) for r in ratings_present)
+            blended_rating = _RATING_ORDER[worst_notch]
+
+        # Real arrangement-fee economics — same 2.25% rate whether pooled
+        # or separate. Pooling does not change what NEST charges per dollar.
+        NEST_ARRANGEMENT_FEE_PCT = 2.25
+        pooled_arrangement_fee = round(total_par * NEST_ARRANGEMENT_FEE_PCT / 100)
+        separate_arrangement_fees = round(sum(p["par"] * NEST_ARRANGEMENT_FEE_PCT / 100 for p in pool))
+
+        # Shared enhancement cost, only if real debt-service data exists.
+        # Uses an explicit annual_debt_service field when a deal has one;
+        # otherwise derives it from noi/dscr (debt_service = noi / dscr) —
+        # never approximated from par, which has no fixed relationship to
+        # debt service (that depends on coupon and maturity too).
+        def _debt_service(d: dict) -> float:
+            if d.get("annual_debt_service"):
+                return float(d["annual_debt_service"])
+            noi, dscr = d.get("noi"), d.get("dscr")
+            if noi and dscr:
+                return float(noi) / float(dscr)
+            return 0.0
+
+        total_debt_service = sum(_debt_service(p) for p in pool)
+        enhancement = None
+        if total_debt_service > 0:
+            try:
+                from services.counterparty_db import bond_insurance_premium
+                enhancement = bond_insurance_premium(total_debt_service, credit_quality="average")
+            except Exception:
+                enhancement = None
+
+        return {
+            "pool_size": len(pool),
+            "viable": True,
+            "deals": [{"deal_id": p["deal_id"], "name": p["name"], "par": p["par"]} for p in pool],
+            "total_par_usd": round(total_par),
+            "weighted_dscr": weighted_dscr,
+            "weighted_ltv": weighted_ltv,
+            "weighted_debt_to_ebitda": weighted_leverage,
+            "blended_rating": blended_rating,
+            "target_rating": target_rating,
+            "fee_economics": {
+                "pooled_arrangement_fee_usd": pooled_arrangement_fee,
+                "separate_arrangement_fees_usd": separate_arrangement_fees,
+                "fee_rate_pct": NEST_ARRANGEMENT_FEE_PCT,
+                "note": "Same per-dollar rate pooled or separate — pooling's real value is fewer independent transactions (one rating submission, one enhancement negotiation, one legal/diligence engagement instead of N), not a higher fee percentage.",
+            },
+            "shared_enhancement": enhancement,
+        }
+
     def detect_signals(self, property_data: dict) -> list[dict]:
         """Given property data, detect what signals are present."""
         signals = []
