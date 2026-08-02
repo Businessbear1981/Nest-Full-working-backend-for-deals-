@@ -128,7 +128,7 @@ DESKS = {
             "strategy": {"name": "Enhancement Strategy Agent", "role": "Enhancement selection and optimization", "agent_file": None},
             "loc_bank": {"name": "LOC Bank Liaison", "role": "Letter of credit bank coordination", "agent_file": None},
             "bond_insurer": {"name": "Bond Insurer Liaison", "role": "BAM, Assured Guaranty coordination", "agent_file": None},
-            "surety": {"name": "SuretyScout", "role": "Surety bond sourcing and matching", "agent_file": "surety_scout.py", "existing_agent": "SuretyScout"},
+            "surety": {"name": "Marshal", "role": "Surety bond sourcing and matching", "agent_file": "surety_scout.py", "existing_agent": "SuretyScout"},
             "federal_programs": {"name": "Federal Guarantee Programs", "role": "FHA 221(d)(4), 223(f), 232, 242; USDA B&I; GNMA wrap", "agent_file": None},
         },
         "counterparties": {
