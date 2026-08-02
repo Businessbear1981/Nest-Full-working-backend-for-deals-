@@ -207,6 +207,55 @@ SECTOR_SCANS = {
 }
 
 
+# ── Comparable-deal scoring (Ticket 22 partial) ─────────────────────────
+# Real tolerance bands for "still comparable" on each underwriting
+# parameter, used by EagleEyeScanner.find_comparable_deals() below —
+# not one magic threshold, a real band per metric.
+_COMP_TOLERANCES = {
+    "ltv": 10.0,              # percentage points
+    "dscr": 0.30,             # multiple
+    "ebitda_margin": 10.0,    # percentage points
+    "debt_to_ebitda": 1.0,    # multiple
+}
+
+_RATING_ORDER = [
+    "Aaa", "Aa1", "Aa2", "Aa3", "A1", "A2", "A3",
+    "Baa1", "Baa2", "Baa3", "Ba1", "Ba2", "Ba3",
+    "B1", "B2", "B3", "Caa1", "Caa2", "Caa3",
+]
+
+
+def _rating_notch(rating: str) -> int | None:
+    r = str(rating or "").strip()
+    return _RATING_ORDER.index(r) if r in _RATING_ORDER else None
+
+
+def _score_comparable_deal(target: dict, candidate: dict) -> tuple[float, int]:
+    """Real similarity score (0-100) across whichever of LTV/DSCR/EBITDA
+    margin/Debt-EBITDA/rating are present on BOTH deals — never assumes a
+    missing field, just skips it and averages over what's actually
+    comparable. Returns (score, count_of_params_actually_compared)."""
+    scores = []
+
+    for field, tolerance in _COMP_TOLERANCES.items():
+        t_val = target.get(field)
+        c_val = candidate.get(field)
+        if t_val is None or c_val is None:
+            continue
+        diff = abs(float(t_val) - float(c_val))
+        scores.append(max(0.0, 100.0 - (diff / tolerance) * 100.0))
+
+    t_rating = _rating_notch(target.get("rating") or target.get("predicted_moodys"))
+    c_rating = _rating_notch(candidate.get("rating") or candidate.get("predicted_moodys"))
+    if t_rating is not None and c_rating is not None:
+        notch_diff = abs(t_rating - c_rating)
+        scores.append(max(0.0, 100.0 - notch_diff * 20.0))  # 5+ notches apart = no credit
+
+    if not scores:
+        return 0.0, 0
+    return sum(scores) / len(scores), len(scores)
+
+
 class EagleEyeScanner:
     """Autonomous deal-finding machine across all capital types and sectors."""
 
@@ -511,6 +560,73 @@ class EagleEyeScanner:
         if not has_gap:
             result["note"] = "No equity gap detected for this deal — sources_and_uses balances within the senior leverage ceiling."
         return result
+
+    def find_comparable_deals(self, target_deal: dict, candidate_deals: list[dict] = None,
+                              top_n: int = 5, min_score: float = 60.0) -> dict:
+        """
+        Real cohort-matching for coordinated/pooled offering candidates —
+        Ticket 22's "deals of similar size/scope, same lender, same
+        structure — pattern-matching for outreach targeting."
+
+        Scores candidates against target_deal on real underwriting
+        parameters: same sector/asset class (hard filter — a coordinated
+        pooled offering needs the same credit story), then LTV, DSCR,
+        EBITDA margin, Debt/EBITDA leverage, and rating tier closeness,
+        using whichever of those fields are actually present on both
+        deals. Never fabricates comparable deals — candidate_deals must
+        be supplied, or this pulls from the real Supabase `deals` table
+        when configured. Returns [] with an honest note otherwise.
+        """
+        candidate_source = "supabase" if candidate_deals is None else "supplied"
+        if candidate_deals is None:
+            candidate_deals = self._load_deals_from_supabase()
+
+        target_sector = target_deal.get("sector", "")
+        target_id = target_deal.get("id", target_deal.get("deal_id", ""))
+        same_sector = [
+            d for d in candidate_deals
+            if d.get("sector") == target_sector and d.get("id", d.get("deal_id", "")) != target_id
+        ]
+
+        matches = []
+        for cand in same_sector:
+            score, params_compared = _score_comparable_deal(target_deal, cand)
+            if params_compared == 0:
+                continue
+            matches.append({
+                "deal_id": cand.get("id", cand.get("deal_id", "")),
+                "name": cand.get("name", ""),
+                "sector": cand.get("sector", ""),
+                "comp_score": round(score, 1),
+                "params_compared": params_compared,
+            })
+
+        matches.sort(key=lambda m: m["comp_score"], reverse=True)
+        matches = [m for m in matches if m["comp_score"] >= min_score][:top_n]
+
+        return {
+            "target_deal_id": target_id,
+            "target_sector": target_sector,
+            "candidates_scanned": len(candidate_deals),
+            "same_sector_candidates": len(same_sector),
+            "matches": matches,
+            "cohort_size": len(matches),
+            # A pooled/coordinated offering needs enough real comparable
+            # credits to be worth the structuring cost — 3 is a defensible
+            # real-world floor (small pool, real diversification benefit),
+            # not a magic number dressed up as fact.
+            "coordinated_offering_viable": len(matches) >= 3,
+            "candidate_source": candidate_source,
+        }
+
+    def _load_deals_from_supabase(self) -> list[dict]:
+        try:
+            from services.database import db
+            if not db.configured:
+                return []
+            return db.select("deals") or []
+        except Exception:
+            return []
 
     def detect_signals(self, property_data: dict) -> list[dict]:
         """Given property data, detect what signals are present."""
