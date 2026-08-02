@@ -330,9 +330,9 @@ Cross-referenced from `docs/STATE.md`, `AGENTS.md`, `docs/audit/2026-06-01-white
 
 ---
 
-## 8. Full Module Inventory (in progress — 147 real backend files total)
+## 8. Full Module Inventory — COMPLETE (147/147 real backend files)
 
-Dispatched as parallel research passes across `backend/agents/`, `backend/services/`, `backend/routes/`, `backend/engines/`, `backend/models/`. **Three of six batches complete** (64 files); the remaining three failed mid-run on a weekly API usage limit (resets 5am America/Chicago) — will resume and fill in as they land. Every row below was independently read and verified by a research pass, not asserted from memory.
+Dispatched as 7 parallel research passes across `backend/agents/`, `backend/services/`, `backend/routes/`, `backend/engines/`, `backend/models/`. Every row below was independently read and verified by a research pass, not asserted from memory. Three passes failed once on a weekly API usage limit and were successfully resumed after it cleared.
 
 **Columns:** Wired = actually called from a registered Flask blueprint or another wired module (checked against `app.py`'s `register_blueprint` calls). Status = BUILT (real logic) / FLASK-ONLY (thin wrapper) / STUB (placeholder) / DEMO-FALLBACK (real path + a fabricated-data fallback — the same failure class as the Hawkeye/ConvergenceEngine/Merlin bugs fixed earlier this session).
 
@@ -350,11 +350,22 @@ Dispatched as parallel research passes across `backend/agents/`, `backend/servic
 - `services/documents.py` — `_stub_extract()` returns identical hardcoded fake fields (unit_count 142, occupancy 94.4%, NOI $1.87M) for every uploaded document regardless of actual content, while `services/doc_ingestion.py` — a second, parallel, genuinely real extraction pipeline — coexists unreconciled.
 - (Already fixed this session: `ConvergenceEngine`, `MerlinAgent.scan_edgar_for_targets()`, and the CRE heatmap fallback in `routes/eagleeye.py`.)
 
-**3. A real dead-code cluster: 6 fully-built agents are reachable by nothing.** `apex_agent.py`, `bond_optimizer.py`, `bridge_agent.py`, `chain_agent.py`, `quantum.py` are only reachable through `agents_api.py`'s generic `/agents/<name>/run` endpoint, which checks whether the agent is configured but never actually calls its real methods — functionally the same as not being wired. `refunding_agent.py` isn't imported anywhere at all, not even by `app.py`. Separately, three real services (`preference_engine.py`, `proforma_spreader.py`, `ramp_connector.py`) have zero live callers — `ramp_connector.py` is particularly notable because it's the *real* Ramp integration that should be powering Treasury, sitting unused while `treasury_engine.py` fabricates everything instead.
+**3. A real dead-code cluster.** `apex_agent.py`, `bond_optimizer.py`, `bridge_agent.py`, `chain_agent.py`, `quantum.py` are only reachable through `agents_api.py`'s generic `/agents/<name>/run` endpoint — **confirmed by the routes batch:** that endpoint never actually invokes any agent's real methods, it just flips an in-memory status flag to `"active"` and returns a canned message, even when a real agent object exists in `app.config`. `refunding_agent.py` isn't imported anywhere at all, not even by `app.py`. `engines/placement.py` is the same story — `routes/engines_api.py`'s own module docstring claims it's wired, but no code anywhere actually imports it. Separately, three real services (`preference_engine.py`, `proforma_spreader.py`, `ramp_connector.py`) have zero live callers — `ramp_connector.py` is particularly notable because it's the *real* Ramp integration that should be powering Treasury, sitting unused while `treasury_engine.py` fabricates everything instead.
 
-**4. Two "Jacaranda Trace" conflicts now confirmed, not one.** The build brief's Ticket 15 already flagged Jacaranda/Convivial figure mismatches between Hawkeye's fallback and the rest of the engagement (explicitly deferred pending Sean's confirmation). This inventory found a *third*, independent conflict: `services/deals.py`'s $42M version. This is now a three-way inconsistency, not two.
+**4. The "Jacaranda Trace" figure conflict is worse than initially found — now 4+ incompatible dollar amounts for the same named deal, across 5+ files:**
+- `$42M` — `services/deals.py`'s fabricated Active Deals list
+- `$205M` — `routes/deals.py`'s Supabase auto-seed on empty startup
+- `$231M` — `routes/bond_tools.py`, `routes/covenants.py` (`JACARANDA_PACKAGE` fixture), `routes/surveillance.py`'s fallback, and `bond_intelligence.py`/`emma_seed_data.py` — this is the figure used in the majority of places, and matches the real CUSIP 68236PAA5 comp cited in the original build brief's Ticket 1
+- **`$205M` and `$231M` in the same file** — `routes/intake_brainstorm.py`'s own fallback fixture contradicts itself: a code comment says "modelled on Jacaranda Trace ($205M CCRC...)" while the narration text two lines later says "closed Jacaranda Trace at $231M."
+This was already flagged as an open question in the original build brief (Ticket 15, deferred pending Sean's confirmation) for *Hawkeye's* version specifically — the inventory shows it's not contained to Hawkeye, it's spread across at least 5 independent fallback/seed data sources platform-wide. **$231M is the majority figure and the one with a real external comp cited against it** — treat that as the working number pending Sean's explicit confirmation, and treat every other figure found as needing correction once that's confirmed.
 
-**5. Not everything is bad — real rigor exists too.** `services/compliance_engine.py` (verified: no hardcoded pass/warn, every status computed from real conditionals), `services/dapt_models.py` (genuinely sophisticated pure-Python quant finance — Vasicek term structure, ridge regression, ran without numpy), `services/doc_ingestion.py`, `services/bond_grader.py`, `agents/moodys_mirror.py`/`sp_mirror.py` are all real, computed, non-fabricated. The pattern isn't "the platform is fake" — it's specifically concentrated in modules that need a real external counterparty/client/deal roster and got a placeholder instead of a real one.
+**5. Hawkeye's fabrication is worse than the brief described, and there are two separate instances in the same file.** `routes/hawkeye.py::BUYER_UNIVERSE` is confirmed verbatim: 6 fictional buyer accounts (Redwood Family Office, Cascadia Endowment Fund, Mariner Credit Partners, Pacific Northwest Pension, Evergreen Insurance Co., Summit Capital Advisors) with invented AUM and ticket sizes. Separately and independently, `hawkeye.py::_get_live_deals()` has its *own* fabricated fallback — "Palmetto Ridge" ($78M) and "Meridian Cove" ($142M) — names that don't appear anywhere else in either catalogue pass, commented in the source as "real known NEST pipeline deals."
+
+**6. One module returns fabricated data for literally any real deal ID requested — the worst instance of this pattern found.** `routes/construction.py`'s `get_deal_summary`/`patch_milestone`/`patch_draw` endpoints ignore whatever `deal_id` is actually passed in and **always** return the same hardcoded "Convivial St. Petersburg" fixture. This isn't a fallback for missing data — a real, valid deal ID gets the wrong deal's data back, silently, every time.
+
+**7. Authentication has no additional safeguard at the route layer.** `routes/auth.py` is a thin wrapper with no env-var or production check of its own — it silently inherits `services/auth.py`'s `NEST_DEMO_MODE=1` default (point 1 above) with nothing at the route level to catch a misconfigured production deploy. Several other routes (`bd.py`, `blockchain.py`'s `POST /record`, `bond_structuring.py`) have no `@require_auth` at all on real compute/write endpoints — worth a real audit pass independent of this inventory.
+
+**8. Not everything is bad — real rigor exists too, and the old known bugs are confirmed fixed.** `services/compliance_engine.py`, `services/dapt_models.py` (genuinely sophisticated pure-Python quant finance — Vasicek term structure, ridge regression, ran without numpy), `services/doc_ingestion.py`, `services/bond_grader.py`, `agents/moodys_mirror.py`/`sp_mirror.py`, `routes/engines_api.py`, `routes/cns.py`, `routes/deal_outcomes.py`, `routes/health.py` are all real, computed, non-fabricated — `deal_outcomes.py` in particular returns explicit errors on failure rather than a silent fallback, a genuinely good pattern. The old `routes/marketplace.py`/`routes/risk.py` `ImportError` bug from a prior audit **is confirmed fixed** — both import successfully today. The fabrication pattern isn't "the platform is fake" — it's specifically concentrated in modules that need a real external counterparty/client/deal roster and got a placeholder instead of a real one.
 
 ### `backend/agents/` — complete (24 files)
 
@@ -441,4 +452,85 @@ Dispatched as parallel research passes across `backend/agents/`, `backend/servic
 
 **Pattern:** three fully-built, real features (`preference_engine.py`, `proforma_spreader.py`, `ramp_connector.py`) have zero live callers. Worse: the platform's actual **live Treasury feature is 100% fabricated data** wearing real vendor names (Moody's, Deloitte, AWS, S&P), while the real Ramp integration that should power it sits completely unused — this is a more serious version of the same fabrication pattern found in Hawkeye/Sterling/LenderScout, because it attaches real third-party names to fake transactions rather than inventing fictional counterparties. NISLE's cross-agent injection is now confirmed dead, not just suspected.
 
-**Still pending** (blocked on the weekly API limit resetting at 5am America/Chicago): `backend/services/` remaining 13 files, all of `backend/routes/` (56 files), `backend/engines/` (8 files not already covered), `backend/models/` (3 files) — 80 files total. Will be added to this section as those research passes complete.
+Remaining `backend/services/` files (13) were checked and confirmed already fully covered by batch A + batch B + the 14 core engines verified earlier this session — no gaps.
+
+### `backend/routes/` — complete (56 files)
+
+All 56 route files are registered in `app.py` and wired — none are dead blueprints. The risk in this directory is not missing registration, it's silent fabricated fallbacks presented as real (see Executive Summary points 4-7 above for the worst instances).
+
+| File | Purpose | Status | Notable finding |
+|---|---|---|---|
+| `activity.py` | Activity feed for current user | Built | Clean, no fabrication |
+| `agents_api.py` | Agent fleet status + `/run` trigger | **Stub** | `/run` never invokes real agent logic — flips a status flag only (root cause of the §8.3 dead-agent cluster) |
+| `auth.py` | Login/register/me/change-password | Flask-only | No production safeguard of its own — inherits `NEST_DEMO_MODE=1` silently |
+| `bd.py` | BD/EagleEye scan, pitch, outreach | Flask-only | **No `@require_auth` on any endpoint** |
+| `blockchain.py` | Chain stats/events/verify/record | Flask-only | `POST /record` has no auth guard |
+| `bond_structuring.py` | GENIE full-stack structuring, CMBS pool analysis | Built | Real DSCR/CLTV/stress math; no auth on a heavy compute surface |
+| `bond_tools.py` | Bond grading, audit, optimization, pipeline | **Demo-fallback** | `/pipeline` always serves a hardcoded 3-deal fixture (Jacaranda $231M) with no DB backing, presented as "NEST live deals" |
+| `bond_workflow.py` | BondCommandCenter, 10-phase Bible pipeline | Built | Honest layered fallback (memory → Supabase → derived → empty), real Claude calls |
+| `client_portal.py` | Client dashboard, questionnaire, Bernard chat | Flask-only | Thin wrapper, no issues |
+| `cns.py` | Full bond computation chain | Built | Genuinely formula-driven end to end |
+| `cns_signals.py` | Signal bus dispatching to real agents | Built | Surfaces "not initialised" errors explicitly instead of papering over them — good pattern |
+| `construction.py` | Construction desk deals/milestones/draws | **Demo-fallback — serious** | See Executive Summary point 6 — always returns the same fake deal regardless of the real `deal_id` requested |
+| `convergence.py` | Read-only ConvergenceEngine surface | Flask-only | Pure pass-through — confirms this session's engine-side fabrication fix wasn't re-introduced here |
+| `counterparties.py` | Counterparty DB lookups | Flask-only | Thin wrapper, no issues |
+| `covenants.py` | Covenant package monitoring | **Demo-fallback** | Falls back to hardcoded `JACARANDA_PACKAGE`; live-derived path back-solves NOI from DSCR and labels it "auto-generated from live data" even though partly estimated |
+| `deals.py` | Full deal lifecycle CRUD | Built + demo-fallback | Auto-seeds Supabase with Jacaranda at **$205M** — a third conflicting figure (see point 4) |
+| `deal_flow.py` | Intake/credit/rating/structuring pipeline | Flask-only | `/seed-deals` directly distributes `emma_seed_data.py`'s fabricated bonds to the frontend |
+| `deal_outcomes.py` | Closed-deal outcomes, self-learning EMA update | Built | Real writes, real Claude calls, explicit errors on failure — no fabrication, a positive outlier |
+| `desks.py` | Desk registry + Bernard CEO actions | Flask-only | Thin wrapper, no issues |
+| `documents.py` | Document upload/list/readiness | Flask-only | Good access control — no `deal_id` filter returns empty, not the global list |
+| `doc_ingestion.py` | Doc extraction → financials, completeness | Built | Real PDF extraction; extracted data lives only in an in-memory dict, lost on restart |
+| `due_diligence.py` | 8-phase DD checklist | Flask-only | Thin wrapper, no issues |
+| `emma.py` | EMMA search/parse/comps | Built + demo-fallback | Real search, but no-query `GET /bonds` returns the fabricated `PARSED_BONDS` seed set unlabeled as such |
+| `engines_api.py` | REST surface for 11 domain engines | Built | No hardcoded/fake data path found anywhere — one of the most solid files in the batch |
+| `fund.py` | Fund position/yield/HFT snapshot | Built + stub | `/snapshot` and `/hft/war-chest` call the same hardcoded seed AUM every time, presented as a live fund snapshot |
+| `hawkeye.py` | Institutional placement, buyer matching | **Demo-fallback — confirmed, worse than known** | See Executive Summary point 5 — two independent fabrication instances in one file |
+| `health.py` | Liveness/readiness checks | Built | Real outbound HTTP calls, real latency measurement, no fabrication |
+| `intake_brainstorm.py` | Bernard first-look memo + gap questions | Built + demo-fallback | Fallback fixture internally contradicts itself on Jacaranda's dollar figure ($205M vs $231M in the same file) |
+| `intelligence.py` | ~40-endpoint bond intel surface | Built | `/api/data/*` silently returns hardcoded fallback rates when FRED is absent |
+| `intelligence_engine_api.py` | Sizing/underwriting/rating math API | Built | Docstrings claim "REAL published benchmarks" — worth spot-verifying against actual S&P/Moody's criteria |
+| `investors.py` | Investor CRUD + deal matching | **Demo-fallback (labeled)** | Falls back to the same 3 fabricated investors as Sterling, but honestly tagged `"source":"seed"` |
+| `lenders_api.py` | LenderScout sourcing/search/pipeline | Built/Stub mix | `/pipeline` always returns empty stage buckets |
+| `ma.py` | Merlin M&A analysis, IRR, pipeline | Built/Stub mix | `/targets`, `/pipeline` are honest stubs — comment says "will be populated once Supabase is connected" |
+| `market.py` | Market signals, Vector scoring, FRED rates | Built + labeled fallback | `DEFAULT_SIGNALS` hardcoded snapshot used when live data absent — clearly labeled, not disguised |
+| `marketing.py` | Morgan/Aria/Sterling/SendGrid pipeline | Built | Well-structured, Supabase-backed, no fabrication found |
+| `marketplace.py` | Public deal listings | Built | **Old ImportError bug confirmed fixed** |
+| `mirror_agents.py` | Moody's/S&P rating prediction | Built | Calls real agents, no issues |
+| `napkin.py` | Quick spread calculators | Built | Demo endpoints explicitly labeled as samples — good pattern |
+| `nightvision.py` | Compliance scanning | Built | Real rule engine, no fabrication |
+| `nisle.py` | NISLE regime/spread ML engine | Built | Genuine ridge-regression training loop — one of the more substantive route files |
+| `perm.py` | Perm debt rolloff tracking | Stub-ish | In-memory only, nothing computed |
+| `phoenix.py` | Pipeline, underwriting, timeline, warchest | Built + stub | `/construction/<deal_id>/milestones` hardcodes one fake deal for any unrecognized `deal_id` |
+| `powerstrip.py` | PluginHub exposure | Flask-only | Thin, expected wrapper |
+| `preflight.py` | Bernard credit memo Q&A interview | Built | Backed by real service + doc-ingestion data |
+| `rating_esg.py` | Rating rationale, ESG, climate risk, covenants | Built | Real weighted scoring; climate/RMA benchmarks are reasonable static reference data |
+| `risk.py` | Sentinel risk scoring, covenant tests | Built | **Old ImportError bug confirmed fixed** |
+| `roots.py` | Roots marketplace | Built | Backed by real service, no fabrication found at the route layer |
+| `scanner.py` | Autonomous scan loop control | Flask-only | Thin wrapper, expected pattern |
+| `signals.py` | 3-node signal pipeline | Built | Confirmed solid per this session's earlier work |
+| `study.py` | Licensing exam study portal | Stub (by design, benign) | Large hardcoded question bank — legitimate static content, not fabricated deal/financial data |
+| `surety.py` | Marshal provider matching | Built | Calls real agent, no issues |
+| `surveillance.py` | Portfolio surveillance, refunding | **Demo-fallback (correct figure)** | Uses Jacaranda at $231M — the majority/correct figure, unlike `deals.py`'s $205M or `services/deals.py`'s $42M |
+| `treasury.py` | Treasury overview/transactions/cards | Flask-only | Pure pass-through — inherits `treasury_engine.py`'s full fabrication wholesale |
+| `v2_compat.py` | Legacy v2 route aliases | Built/Stub mix | Some proxies real, others (`insurance_analyze`, `signals_alerts`) flat stubs |
+| `webhooks.py` | Inbound webhook receiver | Built | Simple, real, no issues |
+| `workflow.py` | Cross-desk lifecycle orchestration | Built | Backed by real `WorkflowEngine`, no issues |
+
+### `backend/engines/` + `backend/models/` — complete (11 files)
+
+| File | Purpose | Wired? | Status | Notable finding |
+|---|---|---|---|---|
+| `audit_package.py` | Formats outputs into an audit working-paper package | Wired | Built | All 5 sections hardcoded to "draft"/"pending" — completion % is structurally always 0, dead math |
+| `bridge_surveillance.py` | Post-issuance covenant/DSCR/occupancy monitoring | Wired | Built | Real conditional alerting, no fabrication found |
+| `insurance.py` | Surety/insurance carrier matching + rating-cap calc | Wired | **Demo-fallback** | `CARRIER_WHITELIST` — 8 real-named carriers with static/fabricated IFS ratings and capacity figures, commented "refresh quarterly" but nothing ever refreshes it |
+| `intake.py` | Deal intake classification, regulatory overlay | Wired | Built | Real deterministic rules engine, no fabrication |
+| `modeling.py` | Core financial metrics — NOI/DSCR/leverage/stress | Wired | Built | Real formulas throughout; stress-shock magnitudes are static constants, not live parameters |
+| `placement.py` | Aggregates engine outputs into an underwriter package | **NOT-WIRED** | Built, dead | `engines_api.py`'s own docstring claims this is wired — it isn't, nothing imports it |
+| `pricing.py` | S&P DJI fixed-income index math | Wired | Built | Genuinely implements cited S&P DJI equations — one of the most rigorous modules found in the whole inventory |
+| `sentinel_engine.py` | 8-dimension risk scoring | Wired | Built | **Confirmed unrelated to `agents/sentinel.py`** — same-name, different module, different logic, real naming-collision risk |
+| `models/bond.py` | Bond structure/series data model | Wired | Built (schema/factory) | Hardcodes real-looking business defaults (7.0% A-tranche, "Hylant" as surety) directly in the factory function |
+| `models/deal.py` | Core deal record + readiness scoring | Wired | Built | Real weighted checklist scorer, no fabrication |
+| `models/refi.py` | Refi-cycle data model | Wired | Built (schema/factory) | `blockchain` sub-object (smart contract address, tx hashes) is an unpopulated placeholder — any "blockchain-backed refi" claim currently rests on empty stub fields |
+
+**Inventory complete: 147/147 backend files catalogued.** See §7 for the consolidated architecture-debt list this feeds into.
