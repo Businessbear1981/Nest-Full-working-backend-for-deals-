@@ -34,9 +34,9 @@ Local dev ports: backend **8000**, frontend **8100** (CreditFix uses 3000/5000 �
 
 ## Session protocol
 
-1. **Start:** read this file, then `docs/STATE.md`, then any GitHub Issue you're picking up.
+1. **Start:** read this file, then `docs/STATE.md`, then `docs/NEST_GLOSSARY.md` (agent/engine org chart — what's real, what's a placeholder, what feeds what), then any GitHub Issue you're picking up.
 2. **Work:** the Issue is the unit of scope. Verify load-bearing claims against ground truth (live endpoints, Supabase, Vercel/Railway dashboards) before high-stakes changes.
-3. **Finish (write-back is the definition of done):** if the session changed project state — infra, schema, decisions, what's-wired status — update `docs/STATE.md` **in the same PR**. Durable choices get an ADR in `docs/adr/`. That's how two machines converge instead of drifting.
+3. **Finish (write-back is the definition of done):** if the session changed project state — infra, schema, decisions, what's-wired status — update `docs/STATE.md` **in the same PR**. If the session touched an agent/engine's real behavior (fixed a bug, wired something, found a fabrication issue), update its entry in `docs/NEST_GLOSSARY.md` too. Durable choices get an ADR in `docs/adr/`. That's how two machines converge instead of drifting.
 
 ## Git SOP
 
@@ -75,6 +75,7 @@ Local dev ports: backend **8000**, frontend **8100** (CreditFix uses 3000/5000 �
 | What | Where |
 |---|---|
 | Current built/wired/live state | `docs/STATE.md` |
+| Agent/engine/product org chart — codenames, what feeds what, INTENDED vs ACTUAL vs FIX-NEEDED | `docs/NEST_GLOSSARY.md` |
 | Durable decisions (ADRs) | `docs/adr/` |
 | Work tracking | GitHub Issues + PRs on `Businessbear1981/NEST-PLATFORM` |
 | Domain glossary | `CONTEXT.md` |
