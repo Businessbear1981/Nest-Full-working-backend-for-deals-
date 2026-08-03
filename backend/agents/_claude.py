@@ -77,9 +77,20 @@ def complete(
         return "\n".join(parts).strip()
 
     elif _backend == "openrouter":
-        # OpenRouter uses OpenAI-compatible API
+        # OpenRouter uses OpenAI-compatible API.
+        # The model argument used to be ignored here — this branch hardcoded
+        # anthropic/claude-sonnet-4-6, so every caller that passed model=
+        # silently got Claude Sonnet anyway. That made non-Anthropic models
+        # (Grok via x-ai/*, etc.) unreachable through OpenRouter even though
+        # OpenRouter serves them. Callers pass OpenRouter-style ids
+        # ("x-ai/grok-4", "anthropic/claude-sonnet-4-6"); a bare Anthropic id
+        # is prefixed so existing callers passing Config.ANTHROPIC_MODEL
+        # keep working.
+        or_model = model or f"anthropic/{Config.ANTHROPIC_MODEL}"
+        if "/" not in or_model:
+            or_model = f"anthropic/{or_model}"
         resp = client.chat.completions.create(
-            model="anthropic/claude-sonnet-4-6",
+            model=or_model,
             max_tokens=max_tokens or Config.ANTHROPIC_MAX_TOKENS,
             messages=[
                 {"role": "system", "content": system_prompt},

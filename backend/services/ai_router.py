@@ -21,6 +21,12 @@ log = logging.getLogger("nest.powerstrip")
 OR_KEY = os.getenv("OPENROUTER_API_KEY", "")
 MODEL_CLAUDE = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 GROK_KEY = os.getenv("GROK_API_KEY", "")
+# "grok-beta" was xAI's original preview model id and has since been retired —
+# calling it returns a model-not-found error, so the Grok plugin looked
+# "configured" but failed every real request. Env-overridable so the model can
+# be moved forward without a code change; confirm the current id against
+# https://docs.x.ai/docs/models before changing the default.
+GROK_MODEL = os.getenv("GROK_MODEL", "grok-4")
 OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
 BLOOMBERG_KEY = os.getenv("BLOOMBERG_API_KEY", "")
 MOODYS_KEY = os.getenv("MOODYS_API_KEY", "")
@@ -106,7 +112,7 @@ PLUGINS: list[PowerPlugin] = [
         name="grok",
         endpoint="https://api.x.ai/v1/chat/completions",
         api_key=GROK_KEY,
-        model="grok-beta",
+        model=GROK_MODEL,
         timeout=20,
         max_retries=1,
         priority=1,
