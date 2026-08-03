@@ -49,6 +49,7 @@ DEVELOPMENT_GATES = [
         "buys": "Secure data room, item-by-item readiness checklist with gap "
                 "analysis, sponsor diligence memorandum, and a written "
                 "go/no-go recommendation.",
+        "hours_estimate": 80,
         "weight": 0.10,
     },
     {
@@ -57,6 +58,7 @@ DEVELOPMENT_GATES = [
         "buys": "Tranche-by-tranche capital stack with tenor, indicative "
                 "coupon, ranking and security package; counterparty long-list; "
                 "funding strategy memorandum; financial model gap analysis.",
+        "hours_estimate": 180,
         "weight": 0.22,
     },
     {
@@ -65,6 +67,7 @@ DEVELOPMENT_GATES = [
         "buys": "Executed engagements with feasibility consultant, independent "
                 "engineer and technical consultants; integrated critical-path "
                 "diligence workplan; monthly status reporting.",
+        "hours_estimate": 90,
         "weight": 0.11,
     },
     {
@@ -73,6 +76,7 @@ DEVELOPMENT_GATES = [
         "buys": "Information memorandum to credit enhancers, full insurance "
                 "underwriting report, and an indicative term sheet from at "
                 "least one named enhancer with pricing and attachment point.",
+        "hours_estimate": 160,
         "weight": 0.20,
     },
     {
@@ -80,6 +84,7 @@ DEVELOPMENT_GATES = [
         "name": "Bond Counsel Engagement",
         "buys": "Bond counsel engaged, tax status analysis, preliminary "
                 "structure opinion, and documentation workplan.",
+        "hours_estimate": 60,
         "weight": 0.08,
     },
     {
@@ -88,6 +93,7 @@ DEVELOPMENT_GATES = [
         "buys": "NRSRO engagement, rating agency information package and "
                 "presentation, rating committee presentation conducted, and a "
                 "written indicative rating letter.",
+        "hours_estimate": 130,
         "weight": 0.16,
     },
     {
@@ -96,6 +102,7 @@ DEVELOPMENT_GATES = [
         "buys": "Full preliminary offering memorandum reviewed and approved by "
                 "bond counsel, including risk factors, use of proceeds, "
                 "capitalization, market analysis and tax considerations.",
+        "hours_estimate": 200,
         "weight": 0.10,
     },
     {
@@ -104,6 +111,7 @@ DEVELOPMENT_GATES = [
         "buys": "Written certification that all conditions precedent to launch "
                 "are satisfied, with rating letter, enhancer commitment, "
                 "trustee engagement, legal opinions and permits matrix.",
+        "hours_estimate": 40,
         "weight": 0.03,
     },
 ]
@@ -114,6 +122,7 @@ PLACEMENT_GATES = [
         "name": "Pricing",
         "buys": "Investor outreach and book-building through the placement "
                 "agent, order book, allocation and final pricing.",
+        "hours_estimate": 120,
         "weight": 0.25,
     },
     {
@@ -121,12 +130,21 @@ PLACEMENT_GATES = [
         "name": "Closing",
         "buys": "Settlement, delivery of securities, funding of proceeds and "
                 "reserve accounts, and closing document set.",
+        "hours_estimate": 100,
         "weight": 0.75,
     },
 ]
 
 VALID_STATUSES = ("pending", "in_progress", "delivered", "accepted",
                   "paid", "waived", "refunded")
+
+# Senior-banker hours per gate. HAND_SET planning estimates -- NEST has not
+# run enough engagements to have measured these, and they are labeled wherever
+# they surface. They exist so a fee can be sanity-checked against the work
+# behind it: a schedule that implies $4,000/hour is not a fee schedule, it is
+# a success fee wearing a work-fee label, and that is exactly the
+# characterization we cannot afford pre-license.
+HOURS_PROVENANCE = "HAND_SET_PLANNING_ESTIMATE"
 
 # A gate is only invoiceable once the client has accepted the deliverable.
 INVOICEABLE_FROM = ("accepted", "paid")
@@ -138,6 +156,37 @@ class GateFeeError(ValueError):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _effort_summary(gates: list[dict], dev_pool: float,
+                    placement_pool: float) -> dict:
+    """
+    Hours behind the fee, and what that implies per hour.
+
+    Reported so a fee can be defended as compensation for work rather than
+    asserted. If the implied rate is absurd in either direction, the schedule
+    is wrong and this makes that visible before a client does.
+    """
+    dev = [g for g in gates if g["fee_class"] == "development"]
+    plc = [g for g in gates if g["fee_class"] == "placement"]
+    dev_hours = sum(g.get("hours_estimate") or 0 for g in dev)
+    plc_hours = sum(g.get("hours_estimate") or 0 for g in plc)
+    return {
+        "development_hours": dev_hours,
+        "placement_hours": plc_hours,
+        "total_hours": dev_hours + plc_hours,
+        "development_effective_hourly": (round(dev_pool / dev_hours, 2)
+                                         if dev_hours else None),
+        "placement_effective_hourly": (round(placement_pool / plc_hours, 2)
+                                       if plc_hours and placement_pool else None),
+        "hours_provenance": HOURS_PROVENANCE,
+        "note": (
+            "Senior-banker hours, planning estimates. The effective hourly is "
+            "the sanity check: a development fee implying an implausible rate "
+            "is a success fee wearing a work-fee label, which is the "
+            "characterization an unlicensed advisor cannot afford."
+        ),
+    }
 
 
 class GateFeeEngine:
@@ -182,6 +231,8 @@ class GateFeeEngine:
                 **g,
                 "fee_class": "development",
                 "amount": round(dev_pool * g["weight"], 2),
+                "effective_hourly": (round(dev_pool * g["weight"] / g["hours_estimate"], 2)
+                                     if g.get("hours_estimate") else None),
                 "status": "pending",
                 "delivered_at": None,
                 "accepted_at": None,
@@ -193,6 +244,8 @@ class GateFeeEngine:
                 **g,
                 "fee_class": "placement",
                 "amount": round(placement_pool * g["weight"], 2),
+                "effective_hourly": (round(placement_pool * g["weight"] / g["hours_estimate"], 2)
+                                     if g.get("hours_estimate") and placement_pool else None),
                 "status": "pending",
                 "delivered_at": None,
                 "accepted_at": None,
@@ -221,6 +274,7 @@ class GateFeeEngine:
             # pay-on-delivery; this is not, because the deliverable itself is
             # delivered on day one and is portable. See PROGRAM_ARCHITECTURE
             # note below.
+            "effort": _effort_summary(gates, dev_pool, placement_pool),
             "upfront_due": round(program_architecture_fee, 2),
             "program_architecture_fee": {
                 "amount": round(program_architecture_fee, 2),
