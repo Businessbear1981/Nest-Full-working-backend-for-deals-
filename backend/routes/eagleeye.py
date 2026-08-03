@@ -1131,3 +1131,142 @@ def operators_learning_loop():
         "sector": sector,
         "state": state,
     })
+
+
+# ---------------------------------------------------------------------------
+# Rico — comparable-deal cohorts and coordinated/pooled offerings
+#
+# These make services/eagleeye_scanner.py's find_comparable_deals() and
+# structure_pooled_offering() reachable over HTTP. Both were real, tested
+# engines with no route, so nothing outside Python could call them.
+# ---------------------------------------------------------------------------
+
+@eagleeye_bp.route("/comparable-deals", methods=["POST"])
+def comparable_deals():
+    """
+    Score a target deal against a candidate universe to find real
+    comparable credits for a coordinated offering.
+
+    Body: {"target_deal": {...}, "candidate_deals": [...]?, "top_n": 5?,
+           "min_score": 60.0?}
+
+    candidate_deals is optional — omit it and the scanner pulls the real
+    Supabase `deals` table. It never fabricates candidates; with no
+    Supabase and no supplied list you get an empty cohort, not fake deals.
+    """
+    body = request.get_json() or {}
+    target = body.get("target_deal")
+    if not isinstance(target, dict) or not target:
+        return _err("target_deal is required and must be an object", 400)
+
+    candidates = body.get("candidate_deals")
+    if candidates is not None and not isinstance(candidates, list):
+        return _err("candidate_deals must be a list of deal objects", 400)
+
+    try:
+        top_n = int(body.get("top_n", 5))
+        min_score = float(body.get("min_score", 60.0))
+    except (TypeError, ValueError):
+        return _err("top_n must be an integer and min_score a number", 400)
+
+    try:
+        result = _scanner.find_comparable_deals(
+            target_deal=target,
+            candidate_deals=candidates,
+            top_n=top_n,
+            min_score=min_score,
+        )
+    except Exception as exc:
+        logger.exception("find_comparable_deals failed")
+        return _err(f"Comparable-deal matching failed: {exc}", 500)
+
+    return _ok(result)
+
+
+@eagleeye_bp.route("/pooled-offering", methods=["POST"])
+def pooled_offering():
+    """
+    Structure a coordinated/pooled offering.
+
+    Two modes:
+
+    1. Explicit pool — {"deals": [ {...}, {...}, {...} ]}
+       Structures exactly the deals supplied. Use this when the cohort is
+       already decided.
+
+    2. Match-then-structure — {"target_deal": {...}, "candidate_deals": [...]?}
+       Runs find_comparable_deals() first, then structures the target
+       together with its matched cohort. The target is included in its own
+       pool because it is a member of the offering, not an outside
+       reference point.
+
+    Optional: {"target_rating": "A3"}.
+
+    Match rows from find_comparable_deals() are summaries (deal_id, name,
+    sector, comp_score) and carry no par/DSCR/LTV, so they are expanded
+    back to the full deal records they were scored from before structuring.
+    A match whose full record cannot be recovered is dropped rather than
+    padded with defaults — structuring on fabricated par would misprice the
+    pool.
+    """
+    body = request.get_json() or {}
+    target_rating = body.get("target_rating")
+
+    explicit = body.get("deals")
+    if explicit is not None:
+        if not isinstance(explicit, list):
+            return _err("deals must be a list of deal objects", 400)
+        pool_deals = explicit
+        matching = None
+    else:
+        target = body.get("target_deal")
+        if not isinstance(target, dict) or not target:
+            return _err(
+                "Provide either 'deals' (an explicit pool) or 'target_deal' "
+                "(to match a cohort first)", 400)
+
+        candidates = body.get("candidate_deals")
+        if candidates is not None and not isinstance(candidates, list):
+            return _err("candidate_deals must be a list of deal objects", 400)
+
+        try:
+            matching = _scanner.find_comparable_deals(
+                target_deal=target,
+                candidate_deals=candidates,
+                top_n=int(body.get("top_n", 5)),
+                min_score=float(body.get("min_score", 60.0)),
+            )
+        except Exception as exc:
+            logger.exception("find_comparable_deals failed inside pooled-offering")
+            return _err(f"Comparable-deal matching failed: {exc}", 500)
+
+        # Expand summary match rows back to the full records they scored
+        # against, using the same candidate universe the matcher saw.
+        universe = candidates
+        if universe is None:
+            universe = _scanner._load_deals_from_supabase()
+        by_id = {
+            str(d.get("id", d.get("deal_id", ""))): d
+            for d in universe
+            if d.get("id") or d.get("deal_id")
+        }
+
+        pool_deals = [target]
+        for m in matching.get("matches", []):
+            full = by_id.get(str(m.get("deal_id", "")))
+            if full is not None:
+                pool_deals.append(full)
+
+    try:
+        result = _scanner.structure_pooled_offering(
+            deals=pool_deals,
+            target_rating=target_rating,
+        )
+    except Exception as exc:
+        logger.exception("structure_pooled_offering failed")
+        return _err(f"Pooled-offering structuring failed: {exc}", 500)
+
+    if matching is not None:
+        result["matching"] = matching
+
+    return _ok(result)
