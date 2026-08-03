@@ -97,3 +97,60 @@ class TestRoute:
 
     def test_preflight_requires_deal(self, client):
         assert client.post("/api/gate-fees/preflight", json={}).status_code == 400
+
+
+class TestProvenance:
+    """Regression: a hand-set threshold must never read as market evidence."""
+
+    def test_every_trap_declares_its_provenance(self):
+        r = run_preflight({**CLEAN, "stabilized_dscr": 1.15,
+                           "revenue_mechanism": "special_tax",
+                           "revenue_mechanism_seasoned": False})
+        for band in ("no_go", "structural", "watch"):
+            for t in r[band]:
+                assert t["threshold_provenance"] in (
+                    "HAND_SET", "RULE_BASED", "MARKET_DERIVED")
+
+    def test_calibration_status_reports_zero_not_aspiration(self):
+        from services.preflight import calibration_status
+        c = calibration_status()
+        assert c["calibration_coverage"] == 0.0
+        assert c["market_derived_thresholds"] == []
+        assert c["minimum_sample_for_calibration"] >= 30
+        assert "hand-set assumptions" in c["honest_status"]
+
+    def test_preflight_result_carries_calibration(self):
+        assert "calibration" in run_preflight(CLEAN)
+
+    def test_emma_calibratable_traps_are_named(self):
+        from services.preflight import EMMA_CALIBRATABLE
+        assert "UNSEASONED_ASSESSMENT" in EMMA_CALIBRATABLE
+        assert "CAPI_EXHAUSTION" in EMMA_CALIBRATABLE
+
+
+class TestEmmaProvenance:
+    def test_seed_bonds_are_not_counted_as_verified_filings(self):
+        from services.emma_seed_data import seed_emma_database
+        from services.emma_engine import seed_modeled, verified_filings
+        seed_emma_database()
+        assert len(seed_modeled()) >= 10
+        assert all(not b.get("is_verified_emma_filing") for b in seed_modeled())
+        assert all(b.get("is_verified_emma_filing", True)
+                   for b in verified_filings())
+
+    def test_seed_bonds_no_longer_claim_an_emma_url(self):
+        """Regression: seed data used to carry a fabricated emma.msrb.org URL."""
+        from services.emma_seed_data import SEED_BONDS, seed_emma_database
+        seed_emma_database()
+        for b in SEED_BONDS:
+            assert not (b.get("source_url") or "").startswith("https://emma.msrb.org")
+            assert b["provenance_note"]
+
+    def test_stats_splits_verified_from_modeled(self):
+        from services.emma_seed_data import seed_emma_database
+        from services.emma_engine import EMMAEngine
+        seed_emma_database()
+        s = EMMAEngine().stats()
+        assert "verified_emma_filings" in s
+        assert "seed_modeled_structures" in s
+        assert s["seed_modeled_structures"] >= 10

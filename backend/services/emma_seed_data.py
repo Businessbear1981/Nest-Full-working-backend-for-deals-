@@ -1,5 +1,23 @@
 """
-EMMA Seed Data — Real bond structures modeled on actual funded EMMA bonds.
+EMMA Seed Data — reference bond structures MODELED ON funded EMMA bonds.
+
+READ THIS BEFORE USING THESE FOR ANYTHING QUANTITATIVE.
+
+These are modeled reference structures, not verified EMMA filings pulled from
+MSRB. They carry real CUSIPs and are built to resemble real funded deals, but
+the covenant packages, reserve sizing and pricing here have NOT been
+reconciled line-by-line against the official statements.
+
+They previously loaded into the same PARSED_BONDS store as live EMMA pulls
+with no marker distinguishing them, which meant anything reading that store --
+comparables, pricing benchmarks, and any future threshold calibration --
+could not tell modeled data from filed data. Every seed bond now carries
+data_origin="seed_modeled" and is_verified_emma_filing=False, and
+services/emma_engine.py can filter on those.
+
+Use them for: demo, pipeline population, structural illustration.
+Do NOT use them for: calibrating a threshold, sourcing a comparable in a
+client deliverable, or any claim presented as market fact.
 
 These represent bonds that have been through the FULL lifecycle:
 originated → underwritten → rated → structured → enhanced → placed → funded → administered.
@@ -284,7 +302,15 @@ def seed_emma_database():
     from services.emma_engine import PARSED_BONDS
     for bond in SEED_BONDS:
         bond["parsed_at"] = "2025-01-01T00:00:00"
-        bond["source_url"] = "https://emma.msrb.org/seed"
+        # Marked, not disguised. The old value was a fabricated emma.msrb.org
+        # URL that made modeled data look like it came from a real filing.
+        bond["source_url"] = None
+        bond["data_origin"] = "seed_modeled"
+        bond["is_verified_emma_filing"] = False
+        bond["provenance_note"] = (
+            "Modeled reference structure, not a verified MSRB EMMA filing. "
+            "Not valid as a pricing comparable or calibration input."
+        )
         if bond not in PARSED_BONDS:
             PARSED_BONDS.append(bond)
     return len(SEED_BONDS)

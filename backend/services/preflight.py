@@ -74,11 +74,100 @@ def _f(deal: dict, *keys, default=None):
     return default
 
 
+# Where each threshold came from. Right now every one is HAND_SET -- NEST has
+# no closed-deal outcome data to fit against, and a threshold "learned" from
+# zero observations is just an assertion wearing a lab coat. This field exists
+# so that stays visible instead of quietly becoming folklore, and so a
+# threshold flips to MARKET_DERIVED only when something real backs it.
+THRESHOLD_PROVENANCE = {
+    "COVERAGE_FATAL": "HAND_SET",
+    "COVERAGE_THIN": "HAND_SET",
+    "COVERAGE_SUB_IG": "HAND_SET",
+    "TAX_EXEMPT_INELIGIBLE": "RULE_BASED",       # tax law, not a fitted number
+    "NO_CONDUIT_ISSUER": "RULE_BASED",
+    "UNSEASONED_ASSESSMENT": "HAND_SET",         # EMMA-calibratable, see below
+    "PRESTABILIZATION_RISK": "HAND_SET",
+    "CAPI_EXHAUSTION": "RULE_BASED",             # arithmetic, cap-i vs ramp
+    "OVERLEVERED": "HAND_SET",
+    "DEMAND_CONCENTRATION": "HAND_SET",
+    "SERIES_TOO_SMALL": "HAND_SET",
+    "PHASING_CASCADE": "RULE_BASED",
+}
+
+# Detectors that could be calibrated against real MSRB EMMA filings and
+# material-event notices once a sample exists. See calibration_status().
+EMMA_CALIBRATABLE = {
+    "UNSEASONED_ASSESSMENT": (
+        "Pull special assessment and special tax series from EMMA and measure "
+        "the actual collection history each had at pricing. Replaces a "
+        "hand-set rule with observed market practice."
+    ),
+    "CAPI_EXHAUSTION": (
+        "Cross material-event and default notices against capitalized-interest "
+        "periods and revenue ramps in the corresponding official statements. "
+        "Directly testable: do defaulted development deals show cap-i shorter "
+        "than their ramp?"
+    ),
+    "SERIES_TOO_SMALL": (
+        "Measure real distribution outcomes by par size to establish where the "
+        "institutional bid actually starts."
+    ),
+    "COVERAGE_SUB_IG": (
+        "Compare stated coverage at pricing against assigned ratings across "
+        "project revenue credits."
+    ),
+}
+
+
 def _trap(code, severity, title, why, evidence, fix, threshold=None) -> dict:
     return {
         "code": code, "severity": severity, "title": title,
         "why": why, "evidence": evidence, "fix": fix,
         "threshold_used": threshold,
+        "threshold_provenance": THRESHOLD_PROVENANCE.get(code, "HAND_SET"),
+        "calibratable_from": ("MSRB EMMA" if code in EMMA_CALIBRATABLE else None),
+    }
+
+
+def calibration_status() -> dict:
+    """
+    How much of preflight rests on real market data versus stated assumption.
+
+    Reports the truth rather than an aspiration: if there are no verified EMMA
+    filings in the store, calibration coverage is zero and every threshold is
+    an assumption. That is the current state and it should be visible in any
+    client-facing use of this engine.
+    """
+    try:
+        from services.emma_engine import verified_filings
+        sample = len(verified_filings())
+    except Exception:
+        sample = 0
+
+    hand_set = [c for c, p in THRESHOLD_PROVENANCE.items() if p == "HAND_SET"]
+    rule_based = [c for c, p in THRESHOLD_PROVENANCE.items() if p == "RULE_BASED"]
+
+    # Below this, a fitted threshold would be noise dressed as evidence.
+    MIN_SAMPLE = 30
+
+    return {
+        "verified_emma_filings_available": sample,
+        "minimum_sample_for_calibration": MIN_SAMPLE,
+        "can_calibrate_now": sample >= MIN_SAMPLE,
+        "hand_set_thresholds": hand_set,
+        "rule_based_thresholds": rule_based,
+        "market_derived_thresholds": [],
+        "calibration_coverage": 0.0,
+        "emma_calibratable": EMMA_CALIBRATABLE,
+        "honest_status": (
+            f"{len(hand_set)} of {len(THRESHOLD_PROVENANCE)} thresholds are "
+            f"hand-set assumptions. {sample} verified EMMA filings are "
+            f"available against a {MIN_SAMPLE}-filing minimum, so none have "
+            "been calibrated against market data. Rule-based detectors (tax "
+            "eligibility, cap-i arithmetic, issuer requirement) do not need "
+            "calibration -- they encode law or arithmetic, not a fitted "
+            "number. Treat every hand-set threshold as PROPOSED."
+        ),
     }
 
 
@@ -408,6 +497,7 @@ def run_preflight(deal: dict) -> dict:
         "cannot_assess": cannot_assess,
         "assessment_completeness": round(
             1 - len(cannot_assess) / len(DETECTORS), 3),
+        "calibration": calibration_status(),
         "scope_note": (
             "Preflight assumes the Project Readiness Checklist is fully "
             "satisfied and asks what remains. A clean preflight does not mean "

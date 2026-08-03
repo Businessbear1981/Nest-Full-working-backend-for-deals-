@@ -74,6 +74,26 @@ SECTOR_NAICS_MAP = {
 PARSED_BONDS: list[dict[str, Any]] = []
 
 
+def verified_filings() -> list[dict[str, Any]]:
+    """
+    Only bonds actually parsed from a real MSRB EMMA filing.
+
+    services/emma_seed_data.py loads modeled reference structures into the
+    same store for demo and pipeline population. Those are marked
+    is_verified_emma_filing=False. Anything that presents a number as market
+    fact -- a pricing comparable, a threshold calibration, a claim in a client
+    deliverable -- must read from here, not from PARSED_BONDS directly.
+    """
+    return [b for b in PARSED_BONDS
+            if b.get("is_verified_emma_filing", True) and "error" not in b]
+
+
+def seed_modeled() -> list[dict[str, Any]]:
+    """The modeled reference structures, explicitly."""
+    return [b for b in PARSED_BONDS
+            if not b.get("is_verified_emma_filing", True)]
+
+
 # ── OS Parser Prompt ──────────────────────────────────────────
 
 OS_PARSER_PROMPT = """You are a bond document parser for NEST Advisors, a digital investment bank.
@@ -725,10 +745,20 @@ class EMMAEngine:
             st = b.get("state", "unknown")
             state_counts[st] = state_counts.get(st, 0) + 1
 
+        verified = verified_filings()
+        modeled = seed_modeled()
         return {
             "total_parsed": len(PARSED_BONDS),
             "valid_parsed": len(valid),
             "errors": len(PARSED_BONDS) - len(valid),
+            # Provenance split. A total that mixes filed and modeled data
+            # overstates how much real market evidence the platform holds.
+            "verified_emma_filings": len(verified),
+            "seed_modeled_structures": len(modeled),
+            "provenance_note": (
+                "Only verified_emma_filings are valid as pricing comparables "
+                "or calibration inputs. Seed structures are modeled."
+            ),
             "by_sector": sector_counts,
             "by_state": state_counts,
         }
