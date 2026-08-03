@@ -291,3 +291,35 @@ def flow():
         ))
     except (TypeError, ValueError) as exc:
         return _err(f"Invalid input: {exc}", 400)
+
+
+@gate_fees_bp.route("/stairway", methods=["POST"])
+def stairway():
+    """
+    "Stairway to Heaven" -- the pathway from not-financeable to financeable.
+
+    Body: {"deal": {...}}
+
+    Returns ordered remediation steps with owner, cost range, duration, what
+    each unlocks, a feasibility score, and a client-facing turndown brief.
+    """
+    body = request.get_json() or {}
+    deal = body.get("deal")
+    if not isinstance(deal, dict):
+        return _err("deal is required and must be an object", 400)
+    from services.stairway import build_pathway
+    return _ok(build_pathway(deal))
+
+
+@gate_fees_bp.route("/stairway/full", methods=["POST"])
+def stairway_full_route():
+    """Preflight + remediation pathway + alternative structures.
+
+    Body: {"deal": {...}}
+    """
+    body = request.get_json() or {}
+    deal = body.get("deal")
+    if not isinstance(deal, dict):
+        return _err("deal is required and must be an object", 400)
+    from services.stairway import stairway_full
+    return _ok(stairway_full(deal))
