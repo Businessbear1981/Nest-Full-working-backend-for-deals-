@@ -57,6 +57,7 @@ from routes.powerstrip import powerstrip_bp
 from routes.bond_workflow import bond_workflow_bp
 from routes.bond_structuring import bond_structuring_bp
 from routes.eagleeye import eagleeye_bp
+from routes.gate_fees import gate_fees_bp
 from routes.hawkeye import hawkeye_bp
 from routes.rating_esg import rating_esg_bp
 from routes.health import health_bp
@@ -152,6 +153,7 @@ def create_app():
 
     # Core blueprints
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
+    app.register_blueprint(gate_fees_bp, url_prefix="/api/gate-fees")
     app.register_blueprint(fund_bp, url_prefix="/api/fund")
     app.register_blueprint(marketing_bp, url_prefix="/api/marketing")
     app.register_blueprint(deals_bp, url_prefix="/api/deals")
