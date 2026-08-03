@@ -136,3 +136,113 @@ def list_gates():
                  "gates are transaction-based and require an effective "
                  "placement agent registration."),
     })
+
+
+@gate_fees_bp.route("/terminate", methods=["POST"])
+def terminate():
+    """
+    Terminate an engagement and compute the refund due.
+
+    Body: {"ledger": {...}, "reason": "..."}
+
+    A gate paid but never accepted is refunded in full. A gate delivered and
+    accepted is earned -- the client holds the work product either way.
+    """
+    body = request.get_json() or {}
+    ledger = body.get("ledger")
+    if not isinstance(ledger, dict) or "gates" not in ledger:
+        return _err("ledger is required and must be a ledger object", 400)
+    return _ok(gate_fee_engine.terminate(ledger, reason=body.get("reason", "")))
+
+
+@gate_fees_bp.route("/predict", methods=["POST"])
+def predict():
+    """
+    Success prediction for a deal: probability of close, the stall point, and
+    the critical-path items driving it.
+
+    Body: {"deal": {...project parameters...}}
+    """
+    body = request.get_json() or {}
+    deal = body.get("deal")
+    if not isinstance(deal, dict):
+        return _err("deal is required and must be an object", 400)
+    from services.success_predictor import predict_success
+    return _ok(predict_success(deal))
+
+
+@gate_fees_bp.route("/optimize", methods=["POST"])
+def optimize():
+    """
+    Optimize the fee mix, using real predicted stall risk when a deal is given.
+
+    Body: {"par": 55000000, "years_to_close": 1.5,
+           "licensed_by_close": false, "client_cost_ceiling_bp": 362.5,
+           "deal": {...}?, "equity_available": false?,
+           "program_terminal_value": 0?, "years_to_realization": 12?}
+    """
+    body = request.get_json() or {}
+    try:
+        par = float(body.get("par", 0))
+        ceiling = float(body.get("client_cost_ceiling_bp", 0))
+        years = float(body.get("years_to_close", 2.0))
+    except (TypeError, ValueError):
+        return _err("par, client_cost_ceiling_bp and years_to_close must be numeric", 400)
+
+    from services.engagement_economics import optimize_engagement
+    result = optimize_engagement(
+        par=par,
+        years_to_close=years,
+        licensed_by_close=bool(body.get("licensed_by_close", False)),
+        client_cost_ceiling_bp=ceiling,
+        equity_available=bool(body.get("equity_available", False)),
+        program_terminal_value=float(body.get("program_terminal_value", 0) or 0),
+        years_to_realization=float(body.get("years_to_realization", 12) or 12),
+        deal=body.get("deal"),
+    )
+    if "error" in result:
+        return _err(result["error"], 400)
+    return _ok(result)
+
+
+@gate_fees_bp.route("/readiness/checklist", methods=["GET"])
+def readiness_catalogue():
+    """The full 272-item Project Readiness Checklist, for an intake form."""
+    from services.readiness_checklist import checklist_catalogue
+    return _ok(checklist_catalogue())
+
+
+@gate_fees_bp.route("/readiness/score", methods=["POST"])
+def readiness_score():
+    """
+    Score a submission set. Body: {"submissions": {"1.1.1": "available", ...}}
+
+    Item values may be a bare status string or
+    {"status": "not_applicable", "justification": "..."}. N/A without a
+    justification is counted as incomplete, not excluded.
+    """
+    body = request.get_json() or {}
+    subs = body.get("submissions")
+    if not isinstance(subs, dict):
+        return _err("submissions is required and must be an object", 400)
+    from services.readiness_checklist import score_readiness
+    return _ok(score_readiness(subs))
+
+
+@gate_fees_bp.route("/readiness/intake", methods=["POST"])
+def readiness_intake():
+    """
+    Full intake: score the checklist, derive deal parameters from the evidence,
+    and predict success off the same evidence.
+
+    Body: {"submissions": {...}, "deal_overrides": {...}?}
+    """
+    body = request.get_json() or {}
+    subs = body.get("submissions")
+    if not isinstance(subs, dict):
+        return _err("submissions is required and must be an object", 400)
+    overrides = body.get("deal_overrides")
+    if overrides is not None and not isinstance(overrides, dict):
+        return _err("deal_overrides must be an object", 400)
+    from services.readiness_checklist import intake
+    return _ok(intake(subs, deal_overrides=overrides))

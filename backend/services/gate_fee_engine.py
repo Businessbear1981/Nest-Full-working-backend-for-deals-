@@ -125,7 +125,8 @@ PLACEMENT_GATES = [
     },
 ]
 
-VALID_STATUSES = ("pending", "in_progress", "delivered", "accepted", "paid", "waived")
+VALID_STATUSES = ("pending", "in_progress", "delivered", "accepted",
+                  "paid", "waived", "refunded")
 
 # A gate is only invoiceable once the client has accepted the deliverable.
 INVOICEABLE_FROM = ("accepted", "paid")
@@ -152,6 +153,7 @@ class GateFeeEngine:
         placement_licensed: bool = False,
         development_fee_floor: float = 0.0,
         development_fee_cap: float | None = None,
+        program_architecture_fee: float = 0.0,
     ) -> dict:
         """
         Create the full gate ledger for a single bond series.
@@ -215,7 +217,32 @@ class GateFeeEngine:
                 "placement": round(placement_pool, 2),
                 "placement_bp": placement_fee_bp if placement_licensed else 0.0,
             },
-            "upfront_due": 0.0,
+            # The one legitimately upfront item. Everything else is
+            # pay-on-delivery; this is not, because the deliverable itself is
+            # delivered on day one and is portable. See PROGRAM_ARCHITECTURE
+            # note below.
+            "upfront_due": round(program_architecture_fee, 2),
+            "program_architecture_fee": {
+                "amount": round(program_architecture_fee, 2),
+                "earned_at": "engagement",
+                "refundable": False,
+                "buys": (
+                    "The financing strategy itself: series ladder and "
+                    "sequencing across the program, instrument selection per "
+                    "revenue mechanism, master indenture architecture, "
+                    "additional-bonds test and covenant package, and the "
+                    "gating logic that determines when each series can price."
+                ),
+                "why_not_gated": (
+                    "This deliverable transfers on day one and is portable -- "
+                    "once delivered, the client holds a financing strategy "
+                    "usable by any advisor. It cannot be structured as "
+                    "pay-on-delivery without giving away the work product for "
+                    "free. It is the only non-refundable, non-contingent "
+                    "component; every other fee in this ledger is earned only "
+                    "as its deliverable lands."
+                ),
+            } if program_architecture_fee else None,
             "gates": gates,
             "terms": (
                 "No fee is payable in advance of delivery. Each gate becomes "
@@ -265,6 +292,64 @@ class GateFeeEngine:
         elif status == "paid":
             gate["paid_at"] = stamp
         return ledger
+
+    def terminate(self, ledger: dict, *, reason: str = "") -> dict:
+        """
+        Terminate the engagement and compute what must be refunded.
+
+        This is what makes "no upfront" more than a slogan. A gate that was
+        paid but whose deliverable was never accepted is refundable in full --
+        NEST holds cash for work the client did not receive, and it goes back.
+        A gate that was delivered and accepted is earned and stays earned;
+        the client has the work product regardless of whether the deal
+        proceeds.
+
+        Gates never reached were never billed, so there is nothing to refund
+        on them -- which is the whole point of the structure.
+        """
+        refundable, earned = [], []
+        for g in ledger["gates"]:
+            if g["status"] != "paid":
+                continue
+            # accepted_at is set on acceptance; its absence means the client
+            # paid for something never accepted.
+            if g.get("accepted_at"):
+                earned.append(g)
+            else:
+                refundable.append(g)
+
+        refund_total = sum(g["amount"] for g in refundable)
+        for g in refundable:
+            g["status"] = "refunded"
+            g["refunded_at"] = _now()
+
+        ledger["terminated_at"] = _now()
+        ledger["termination_reason"] = reason
+        ledger["refund_due"] = round(refund_total, 2)
+
+        return {
+            "series_name": ledger["series_name"],
+            "terminated_at": ledger["terminated_at"],
+            "reason": reason,
+            "refund_due": round(refund_total, 2),
+            "refundable_gates": [
+                {"gate": g["name"], "amount": g["amount"],
+                 "why": "Paid but deliverable never accepted."}
+                for g in refundable
+            ],
+            "earned_and_retained": [
+                {"gate": g["name"], "amount": g["amount"],
+                 "why": "Deliverable was delivered and accepted; the client "
+                        "holds the work product."}
+                for g in earned
+            ],
+            "never_billed": [
+                {"gate": g["name"], "amount": g["amount"]}
+                for g in ledger["gates"]
+                if g["status"] in ("pending", "in_progress", "delivered")
+            ],
+            "ledger": ledger,
+        }
 
     def client_view(self, ledger: dict) -> dict:
         """

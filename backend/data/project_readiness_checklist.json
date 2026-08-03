@@ -1,0 +1,1318 @@
+{
+ "source": "Project Readiness Checklist.xlsx (Sparrow Capital / client DD checklist)",
+ "total_items": 272,
+ "categories": [
+  {
+   "num": "1",
+   "name": "Organizational",
+   "subcategories": [
+    {
+     "num": "1.1",
+     "name": "Project Overview",
+     "items": [
+      {
+       "num": "1.1.1",
+       "text": "Discussion of organizational/administrative matters, including Project Company’s shareholders, shareholder structure, board members, key personnel, and organizational chart"
+      },
+      {
+       "num": "1.1.2",
+       "text": "Financial forecast summary, key metrics, and investment thesis"
+      },
+      {
+       "num": "1.1.3",
+       "text": "Discussion of commercial considerations, including revenue streams, operational expenses, margins, target market, demographics, marketing strategy, etc."
+      },
+      {
+       "num": "1.1.4",
+       "text": "Technical considerations, including construction execution schedule and key contractors, subcontractors, suppliers, and service providers"
+      },
+      {
+       "num": "1.1.5",
+       "text": "Bios of all officers, directors, managers and shareholders (with more than 5% ownership)"
+      },
+      {
+       "num": "1.1.6",
+       "text": "Legal considerations"
+      },
+      {
+       "num": "1.1.7",
+       "text": "Regulatory considerations"
+      },
+      {
+       "num": "1.1.9",
+       "text": "Risk management and insurance considerations"
+      },
+      {
+       "num": "1.1.10",
+       "text": "ESG considerations"
+      }
+     ]
+    },
+    {
+     "num": "1.2",
+     "name": "Project’s Sponsor/Parent Company",
+     "items": [
+      {
+       "num": "1.2.1",
+       "text": "Overview of the Sponsor/Parent Company"
+      },
+      {
+       "num": "1.2.2",
+       "text": "Track record of the Sponsor/Parent Company in the operation and development of similar projects"
+      },
+      {
+       "num": "1.2.3",
+       "text": "Chart of corporate structure, including parent companies, affiliates, and subsidiaries, including ownership %"
+      },
+      {
+       "num": "1.2.4",
+       "text": "Diagram of the Project's board of directors, including their roles and responsibilities"
+      },
+      {
+       "num": "1.2.5",
+       "text": "CVs/Bios of executive officers and board members"
+      },
+      {
+       "num": "1.2.6",
+       "text": "Type of equity held in the Project Company (common or preferred shares, noncertified equity interest, etc.)"
+      },
+      {
+       "num": "1.2.7",
+       "text": "Main financial metrics of the Sponsor/Parent Company"
+      },
+      {
+       "num": "1.2.8",
+       "text": "List/chart of all of the Project Company's ultimate beneficial owners (UBO), including %"
+      },
+      {
+       "num": "1.2.9",
+       "text": "List/chart of all of the Sponsor/Parent Company's ultimate beneficial owners (UBO), including %"
+      },
+      {
+       "num": "1.2.10",
+       "text": "Minutes of all shareholder meetings related to the Project from the last three years"
+      }
+     ]
+    },
+    {
+     "num": "1.3",
+     "name": "Key Strategic Initiatives",
+     "items": [
+      {
+       "num": "1.3.1",
+       "text": "Summary of short-term and long-term strategic initiatives of the Sponsor/Parent Company"
+      },
+      {
+       "num": "1.3.2",
+       "text": "Discussion of any recent or planned acquisitions or divestitures"
+      }
+     ]
+    },
+    {
+     "num": "1.4",
+     "name": "List of Company's Outside Providers/Suppliers",
+     "items": [
+      {
+       "num": "1.4.1",
+       "text": "Accounting"
+      },
+      {
+       "num": "1.4.2",
+       "text": "Auditing"
+      },
+      {
+       "num": "1.4.3",
+       "text": "Insurance"
+      },
+      {
+       "num": "1.4.4",
+       "text": "Legal"
+      },
+      {
+       "num": "1.4.5",
+       "text": "Industry specific"
+      },
+      {
+       "num": "1.4.6",
+       "text": "Other"
+      }
+     ]
+    },
+    {
+     "num": "1.5",
+     "name": "Property Management Firm or O&M Contractor",
+     "items": [
+      {
+       "num": "1.5.1",
+       "text": "List of firms considered"
+      },
+      {
+       "num": "1.5.2",
+       "text": "Scope of services"
+      },
+      {
+       "num": "1.5.3",
+       "text": "Track record"
+      },
+      {
+       "num": "1.5.4",
+       "text": "List of main/similar clients"
+      },
+      {
+       "num": "1.5.5",
+       "text": "List and bios of key personnel"
+      },
+      {
+       "num": "1.5.6",
+       "text": "Management and performance metrics (KPIs)"
+      }
+     ]
+    }
+   ],
+   "item_count": 33
+  },
+  {
+   "num": "2",
+   "name": "Financial",
+   "subcategories": [
+    {
+     "num": "2.1",
+     "name": "Project Financing",
+     "items": [
+      {
+       "num": "2.1.1",
+       "text": "Project funding needs in USD"
+      },
+      {
+       "num": "2.1.2",
+       "text": "Target capital stack"
+      },
+      {
+       "num": "2.1.3",
+       "text": "Detailed capitalization schedule"
+      },
+      {
+       "num": "2.1.4",
+       "text": "Cost of capital/expected return of each component of the capital stack"
+      },
+      {
+       "num": "2.1.5",
+       "text": "Description of any agreements or arrangements providing any right to share in the equity, income, revenue, or cash flow of the Project Company"
+      },
+      {
+       "num": "2.1.6",
+       "text": "Future funding challenges, options, and opportunities"
+      }
+     ]
+    },
+    {
+     "num": "2.2",
+     "name": "Existing Funding Sources",
+     "items": [
+      {
+       "num": "2.2.1",
+       "text": "Equity investment in the Project Company so far and up to financial closing"
+      },
+      {
+       "num": "2.2.2",
+       "text": "Description of main terms and conditions of any loan agreements, indentures, and other debt instruments"
+      },
+      {
+       "num": "2.2.3",
+       "text": "Description of other financing instruments to which the Project Company is a party to"
+      },
+      {
+       "num": "2.2.4",
+       "text": "Description of other financing instruments to which the Project Company’s properties or assets are subject to"
+      },
+      {
+       "num": "2.2.5",
+       "text": "Description of other financing instruments under which the Project Company is guaranteeing or assuming the obligations of others"
+      },
+      {
+       "num": "2.2.6",
+       "text": "Description of supplier financing and usage"
+      },
+      {
+       "num": "2.2.7",
+       "text": "List and description of existing guarantees, including issuers, amount, and term"
+      }
+     ]
+    },
+    {
+     "num": "2.3",
+     "name": "Project Financial Model in Excel",
+     "items": [
+      {
+       "num": "2.3.1",
+       "text": "Documentation supporting assumptions made in the financial model"
+      },
+      {
+       "num": "2.3.2",
+       "text": "Revenue assumptions"
+      },
+      {
+       "num": "2.3.3",
+       "text": "OpEX assumptions"
+      },
+      {
+       "num": "2.3.4",
+       "text": "CapEx assumptions, including drawdown schedule"
+      },
+      {
+       "num": "2.3.5",
+       "text": "Depreciation schedule"
+      },
+      {
+       "num": "2.3.6",
+       "text": "Applicable tax assumptions"
+      },
+      {
+       "num": "2.3.7",
+       "text": "Project soft-cost investments so far and source of funding"
+      },
+      {
+       "num": "2.3.8",
+       "text": "Soft costs budget until financial closing"
+      },
+      {
+       "num": "2.3.9",
+       "text": "Any other relevant Project assumptions"
+      },
+      {
+       "num": "2.3.10",
+       "text": "Income Statement (P&L)"
+      },
+      {
+       "num": "2.3.11",
+       "text": "Cash Flows Statement"
+      },
+      {
+       "num": "2.3.12",
+       "text": "Balance Sheet"
+      },
+      {
+       "num": "2.3.13",
+       "text": "Projected returns"
+      },
+      {
+       "num": "2.3.14",
+       "text": "Breakeven"
+      },
+      {
+       "num": "2.3.15",
+       "text": "Benchmark/comparables"
+      },
+      {
+       "num": "2.3.16",
+       "text": "Sensitivity analysis"
+      },
+      {
+       "num": "2.3.17",
+       "text": "Financial ratios (i.e., coverage, liquidity, financial margins)"
+      },
+      {
+       "num": "2.3.18",
+       "text": "Maximum probable loss"
+      }
+     ]
+    },
+    {
+     "num": "2.4",
+     "name": "Financial Reporting",
+     "items": [
+      {
+       "num": "2.4.1",
+       "text": "Last 3 years of audited Sponsor/Parent Company financial statements"
+      },
+      {
+       "num": "2.4.2",
+       "text": "Last 3 years of audited Project Company financial statements"
+      },
+      {
+       "num": "2.4.3",
+       "text": "Sample of monthly internal financial statements and management reporting packages"
+      }
+     ]
+    },
+    {
+     "num": "2.5",
+     "name": "Real Property Taxes and Other Governmental Impositions",
+     "items": [
+      {
+       "num": "2.5.1",
+       "text": "Current bills showing all real properties taxes"
+      },
+      {
+       "num": "2.5.2",
+       "text": "Current bills showing all agricultural taxes"
+      },
+      {
+       "num": "2.5.3",
+       "text": "Current bills showing other ordinary and special assessments"
+      },
+      {
+       "num": "2.5.4",
+       "text": "Current bills showing water and sewer charges and other impositions"
+      },
+      {
+       "num": "2.5.5",
+       "text": "Current notices of real properties tax assessments"
+      },
+      {
+       "num": "2.5.6",
+       "text": "Current notices and assessments as to any special or other impositions"
+      },
+      {
+       "num": "2.5.7",
+       "text": "Notices or letters advising of pending reassessments or forthcoming special assessments"
+      },
+      {
+       "num": "2.5.8",
+       "text": "Pleadings, filings, notices and/or other correspondence pertaining to challenges, appeals or other proceedings concerning real properties tax matters, special assessments and other governmental impositions"
+      },
+      {
+       "num": "2.5.9",
+       "text": "Description of agreements with governmental or taxing authorities concerning the deferral or reduction of real properties taxes or other impositions, or payments in lieu of taxes"
+      },
+      {
+       "num": "2.5.10",
+       "text": "Information concerning any special taxing districts in which the properties is located"
+      }
+     ]
+    }
+   ],
+   "item_count": 44
+  },
+  {
+   "num": "3",
+   "name": "Commercial",
+   "subcategories": [
+    {
+     "num": "3.1",
+     "name": "Market and Competitive Analysis",
+     "items": [
+      {
+       "num": "3.1.1",
+       "text": "Industry overview"
+      },
+      {
+       "num": "3.1.2",
+       "text": "Asset class overview"
+      },
+      {
+       "num": "3.1.3",
+       "text": "Target market"
+      },
+      {
+       "num": "3.1.4",
+       "text": "Market size"
+      },
+      {
+       "num": "3.1.5",
+       "text": "Market trends"
+      },
+      {
+       "num": "3.1.6",
+       "text": "Demand drivers"
+      },
+      {
+       "num": "3.1.7",
+       "text": "Revenue streams, cost drivers, and margins"
+      },
+      {
+       "num": "3.1.8",
+       "text": "Growth potential"
+      },
+      {
+       "num": "3.1.9",
+       "text": "User characteristics"
+      },
+      {
+       "num": "3.1.10",
+       "text": "Customer segments"
+      },
+      {
+       "num": "3.1.11",
+       "text": "Major competitors: market shares, strengths, and weaknesses"
+      },
+      {
+       "num": "3.1.12",
+       "text": "Market comparables"
+      }
+     ]
+    }
+   ],
+   "item_count": 12
+  },
+  {
+   "num": "4",
+   "name": "Technical",
+   "subcategories": [
+    {
+     "num": "4.1",
+     "name": "Feasibility Study",
+     "items": [
+      {
+       "num": "4.1.1",
+       "text": "Technical"
+      },
+      {
+       "num": "4.1.2",
+       "text": "Environmental"
+      },
+      {
+       "num": "4.1.3",
+       "text": "Socioeconomic and sustainability"
+      },
+      {
+       "num": "4.1.4",
+       "text": "Institutional"
+      },
+      {
+       "num": "4.1.5",
+       "text": "Legal"
+      },
+      {
+       "num": "4.1.6",
+       "text": "Regulatory"
+      },
+      {
+       "num": "4.1.7",
+       "text": "Economic and financial viability"
+      }
+     ]
+    },
+    {
+     "num": "4.2",
+     "name": "Studies and Designs",
+     "items": [
+      {
+       "num": "4.2.1",
+       "text": "List of all applicable studies and designs performed"
+      },
+      {
+       "num": "4.2.2",
+       "text": "Property appraisals"
+      },
+      {
+       "num": "4.2.3",
+       "text": "List of all permits, licenses, and governmental approvals maintained in connection with the operation of the project/properties"
+      },
+      {
+       "num": "4.2.4",
+       "text": "Geological (soil study/morphology/geotechnical) studies"
+      },
+      {
+       "num": "4.2.5",
+       "text": "Topographic survey"
+      },
+      {
+       "num": "4.2.6",
+       "text": "Conceptual design studies"
+      },
+      {
+       "num": "4.2.7",
+       "text": "Basic design/engineering drawings"
+      },
+      {
+       "num": "4.2.8",
+       "text": "Site plan permit application and drawings"
+      },
+      {
+       "num": "4.2.9",
+       "text": "Plot plan/equipment arrangement drawings"
+      },
+      {
+       "num": "4.2.10",
+       "text": "As-built plans and specifications for the properties (retrofit only)"
+      },
+      {
+       "num": "4.2.11",
+       "text": "Area calculations to support permitting"
+      },
+      {
+       "num": "4.2.12",
+       "text": "Green space analysis"
+      },
+      {
+       "num": "4.2.13",
+       "text": "Parking analysis"
+      },
+      {
+       "num": "4.2.14",
+       "text": "Traffic impact study"
+      },
+      {
+       "num": "4.2.15",
+       "text": "Construction drawings, plans and specifications (all disciplines)"
+      },
+      {
+       "num": "4.2.16",
+       "text": "Architectural exterior and interior finishes, details, and schedules"
+      },
+      {
+       "num": "4.2.17",
+       "text": "Current major equipment list(s) and specifications"
+      },
+      {
+       "num": "4.2.18",
+       "text": "Project execution and major subcontractor plan"
+      },
+      {
+       "num": "4.2.19",
+       "text": "Project execution risk register"
+      },
+      {
+       "num": "4.2.20",
+       "text": "Project progress schedule"
+      },
+      {
+       "num": "4.2.21",
+       "text": "Basis of estimate"
+      },
+      {
+       "num": "4.2.22",
+       "text": "Construction cost estimate and draw schedule"
+      },
+      {
+       "num": "4.2.23",
+       "text": "Detailed designs, specifications and construction bid packages"
+      },
+      {
+       "num": "4.2.24",
+       "text": "Takeoff plan"
+      },
+      {
+       "num": "4.2.25",
+       "text": "Asbestos, lead paint and other physical reports"
+      },
+      {
+       "num": "4.2.26",
+       "text": "Environmental impact assessment (EIA)"
+      },
+      {
+       "num": "4.2.27",
+       "text": "Utility source availability"
+      },
+      {
+       "num": "4.2.28",
+       "text": "Raw material sources and availability (i.e., solar irradiance level, wind, fuel, etc.)"
+      },
+      {
+       "num": "4.2.29",
+       "text": "List of all studies pending to be performed (cost, date and time needed to be performed) and likely service providers"
+      },
+      {
+       "num": "4.2.30",
+       "text": "Temporary site infrastructure in place (fencing, signage, trailers)"
+      },
+      {
+       "num": "4.2.31",
+       "text": "Staging areas and material laydown plans developed"
+      }
+     ]
+    },
+    {
+     "num": "4.3",
+     "name": "Engineering",
+     "items": [
+      {
+       "num": "4.3.1",
+       "text": "List of construction contracts, major subcontracts, and architectural services agreements"
+      },
+      {
+       "num": "4.3.2",
+       "text": "List of EPC firms considered, preliminary quotes, and status of negotiations"
+      },
+      {
+       "num": "4.3.3",
+       "text": "List of project management firms considered, preliminary quotes, and status of negotiations"
+      },
+      {
+       "num": "4.3.4",
+       "text": "Construction budget and Project cost breakdowns with contingency analysis"
+      },
+      {
+       "num": "4.3.5",
+       "text": "Construction schedule (Gantt chart)"
+      },
+      {
+       "num": "4.3.6",
+       "text": "Management plans (i.e., project execution, procurement, quality, safety, logistics/transportation)"
+      },
+      {
+       "num": "4.3.7",
+       "text": "Expected quantitative impact/results of the Project"
+      },
+      {
+       "num": "4.3.8",
+       "text": "Production capacity, scalability, adaptability, and potential for future expansion"
+      },
+      {
+       "num": "4.3.9",
+       "text": "Technology selected for the Project and its suitability, including any licensors required"
+      },
+      {
+       "num": "4.3.10",
+       "text": "List of technology supply providers considered"
+      },
+      {
+       "num": "4.3.11",
+       "text": "Specifications and technical details of the equipment and infrastructure involved in the Project, including useful life, maintenance, and replacement requirements"
+      },
+      {
+       "num": "4.3.12",
+       "text": "Certifications or warranties associated with the equipment or infrastructure"
+      },
+      {
+       "num": "4.3.13",
+       "text": "Description of the Project's operations and maintenance procedures"
+      },
+      {
+       "num": "4.3.14",
+       "text": "Any relevant operational manuals or guidelines"
+      },
+      {
+       "num": "4.3.15",
+       "text": "Certifications (ISO 9001, ISO 14001, OSHAS 18001, etc.)"
+      },
+      {
+       "num": "4.3.16",
+       "text": "Environment report"
+      },
+      {
+       "num": "4.3.17",
+       "text": "Environmental indemnity"
+      },
+      {
+       "num": "4.3.18",
+       "text": "Other environmental review"
+      },
+      {
+       "num": "4.3.19",
+       "text": "Geotech report with soil tests, and borings"
+      },
+      {
+       "num": "4.3.20",
+       "text": "Structural design report"
+      },
+      {
+       "num": "4.3.21",
+       "text": "Flood map/wet lands delineation"
+      },
+      {
+       "num": "4.3.22",
+       "text": "Utilities supply/delivery identification"
+      },
+      {
+       "num": "4.3.23",
+       "text": "Water testing (if required)"
+      },
+      {
+       "num": "4.3.24",
+       "text": "Electrical load calculations approved"
+      }
+     ]
+    },
+    {
+     "num": "4.4",
+     "name": "Land Needed to Execute the Project",
+     "items": [
+      {
+       "num": "4.4.1",
+       "text": "Description of current state of land negotiations"
+      },
+      {
+       "num": "4.4.2",
+       "text": "Estimated cost associated to land purchase/negotiations/investment"
+      },
+      {
+       "num": "4.4.3",
+       "text": "Description of the land plot"
+      },
+      {
+       "num": "4.4.4",
+       "text": "Zoning analysis/suitability"
+      },
+      {
+       "num": "4.4.5",
+       "text": "Engineering and other physical reports of the property in Seller’s possession or obtainable by Seller."
+      },
+      {
+       "num": "4.4.6",
+       "text": "Current zoning and land use classifications and compliance of the properties with respect to zoning, subdivision and land use laws and regulations"
+      },
+      {
+       "num": "4.4.7",
+       "text": "List of applicable subdivision approvals, special exceptions, variances, and other governmental legislative and administrative actions concerning zoning, land use and subdivision matters"
+      },
+      {
+       "num": "4.4.8",
+       "text": "Planning board resolution"
+      },
+      {
+       "num": "4.4.9",
+       "text": "All violation notices, notices of pending rezoning or land use reclassifications, and all pleadings or filings pertaining to zoning, subdivision or land use actions or proceedings"
+      },
+      {
+       "num": "4.4.10",
+       "text": "Any opinions of counsel as to zoning, subdivision, or land use matters in the possession of seller"
+      },
+      {
+       "num": "4.4.11",
+       "text": "Any agreements, orders or decrees concerning impact fees, linkage fees, exactions, adequate public facilities charges or similar fees, or charges"
+      },
+      {
+       "num": "4.4.12",
+       "text": "Any agreements or proposed deeds with respect to any contemplated dedication or proffers to any governmental agency or private body of any portions of any of the properties"
+      },
+      {
+       "num": "4.4.13",
+       "text": "Boundary and encroachment issues resolved"
+      },
+      {
+       "num": "4.4.14",
+       "text": "Miscellaneous"
+      }
+     ]
+    }
+   ],
+   "item_count": 76
+  },
+  {
+   "num": "5",
+   "name": "Legal",
+   "subcategories": [
+    {
+     "num": "5.1",
+     "name": "Sponsor/Parent Company and Project Company Documentation",
+     "items": [
+      {
+       "num": "5.1.1",
+       "text": "Articles of incorporation/association"
+      },
+      {
+       "num": "5.1.2",
+       "text": "Corporate bylaws"
+      },
+      {
+       "num": "5.1.3",
+       "text": "Certificate of good standing"
+      },
+      {
+       "num": "5.1.4",
+       "text": "Register of directors and officers"
+      },
+      {
+       "num": "5.1.5",
+       "text": "List of all joint ventures and partnerships"
+      },
+      {
+       "num": "5.1.6",
+       "text": "List of all subsidiaries (whether wholly owned or partially owned)"
+      },
+      {
+       "num": "5.1.7",
+       "text": "Joint venture, partnership, strategic partnerships, and similar agreements"
+      },
+      {
+       "num": "5.1.8",
+       "text": "Shareholder agreements, warrants, options, and any other type of shareholder voting agreements"
+      },
+      {
+       "num": "5.1.9",
+       "text": "GP and LP agreements"
+      },
+      {
+       "num": "5.1.10",
+       "text": "Operating agreements"
+      },
+      {
+       "num": "5.1.11",
+       "text": "ID of persons authorized to sign on behalf of the Project Company"
+      },
+      {
+       "num": "5.1.12",
+       "text": "Certificates and documents evidencing the capital stock or other equity interests of the Project Company"
+      },
+      {
+       "num": "5.1.13",
+       "text": "Certificates and documents evidencing any warrants, options, bonds, and any other securities of the Project or Parent Company"
+      },
+      {
+       "num": "5.1.14",
+       "text": "List of all mortgages, liens, pledges, security interests, charges, or other encumbrances to which any property"
+      },
+      {
+       "num": "5.1.15",
+       "text": "List of all guarantees or indemnity undertakings given by the Project Company or by any other person on behalf of the Project Company."
+      },
+      {
+       "num": "5.1.16",
+       "text": "List of all trademarks, patents, and material intellectual property owned by the Project Company"
+      },
+      {
+       "num": "5.1.17",
+       "text": "List of all licenses granted to the Project Company"
+      }
+     ]
+    },
+    {
+     "num": "5.2",
+     "name": "Contracts",
+     "items": [
+      {
+       "num": "5.2.1",
+       "text": "Legal due diligence report"
+      },
+      {
+       "num": "5.2.2",
+       "text": "List of all non-disclosure agreements signed pertaining to the Project"
+      },
+      {
+       "num": "5.2.3",
+       "text": "List of existing non-compete contracts that affect the Project"
+      },
+      {
+       "num": "5.2.4",
+       "text": "List of all contracts executed, including scope, counterparty, date of execution, amounts, and term"
+      },
+      {
+       "num": "5.2.5",
+       "text": "List of all contracts currently under negotiation, including scope, counterparty, expected date of execution, amounts, and term"
+      },
+      {
+       "num": "5.2.6",
+       "text": "Agreements with governmental or taxing authorities concerning the deferral or reduction of real properties taxes or other impositions, or payments in lieu of taxes"
+      },
+      {
+       "num": "5.2.7",
+       "text": "Specific endorsements received so far (e.g., from national/regional authorities, multilateral entities, etc.)"
+      },
+      {
+       "num": "5.2.8",
+       "text": "Development agreements"
+      },
+      {
+       "num": "5.2.9",
+       "text": "Offtake contracts"
+      },
+      {
+       "num": "5.2.10",
+       "text": "Concession agreements"
+      },
+      {
+       "num": "5.2.11",
+       "text": "Agreements with contractors and subcontractors"
+      },
+      {
+       "num": "5.2.12",
+       "text": "Contracts with technology suppliers"
+      },
+      {
+       "num": "5.2.13",
+       "text": "Contracts with suppliers of raw materials and other inputs"
+      },
+      {
+       "num": "5.2.14",
+       "text": "Contracts with service providers"
+      },
+      {
+       "num": "5.2.15",
+       "text": "Property management agreements"
+      },
+      {
+       "num": "5.2.16",
+       "text": "Project management agreements"
+      },
+      {
+       "num": "5.2.17",
+       "text": "Contracts relating to intellectual property"
+      },
+      {
+       "num": "5.2.18",
+       "text": "Other contracts (i.e., water use)"
+      },
+      {
+       "num": "5.2.19",
+       "text": "Any letters of intent (LOI) currently in effect"
+      },
+      {
+       "num": "5.2.20",
+       "text": "Revenue stream validation from off-take agreements completed"
+      },
+      {
+       "num": "5.2.21",
+       "text": "Creditworthiness of off-takers verified"
+      },
+      {
+       "num": "5.2.22",
+       "text": "Utility connection agreements with local providers signed"
+      },
+      {
+       "num": "5.2.23",
+       "text": "Purchase orders for long-lead equipment issued"
+      },
+      {
+       "num": "5.2.24",
+       "text": "Labor agreements (union/non-union) finalized"
+      }
+     ]
+    },
+    {
+     "num": "5.3",
+     "name": "Property Agreements",
+     "items": [
+      {
+       "num": "5.3.1",
+       "text": "Land purchase agreements"
+      },
+      {
+       "num": "5.3.2",
+       "text": "Lease agreements (i.e., land lease)"
+      },
+      {
+       "num": "5.3.3",
+       "text": "Reciprocal easements"
+      },
+      {
+       "num": "5.3.4",
+       "text": "Common area maintenance agreements"
+      },
+      {
+       "num": "5.3.5",
+       "text": "Option agreements"
+      },
+      {
+       "num": "5.3.6",
+       "text": "Purchase settlement statement (Hud-1)"
+      },
+      {
+       "num": "5.3.7",
+       "text": "Appraisals"
+      },
+      {
+       "num": "5.3.8",
+       "text": "Assignment documents"
+      },
+      {
+       "num": "5.3.9",
+       "text": "Closing documents"
+      },
+      {
+       "num": "5.3.10",
+       "text": "Deed, assignment of PSA, and other closing documents"
+      }
+     ]
+    },
+    {
+     "num": "5.4",
+     "name": "Legal Proceedings",
+     "items": [
+      {
+       "num": "5.4.1",
+       "text": "List of all current suits, actions, litigation, investigations, administrative proceedings, or other allegations or governmental inquiries whether potential, pending or threatened"
+      }
+     ]
+    }
+   ],
+   "item_count": 52
+  },
+  {
+   "num": "6",
+   "name": "Regulatory",
+   "subcategories": [
+    {
+     "num": "6.1",
+     "name": "Permits, Registrations, Consents, Licenses, Authorizations and Approvals",
+     "items": [
+      {
+       "num": "6.1.1",
+       "text": "List of all permits, registrations, consents, licenses, authorizations or approvals by or from any governmental authority or agency held by the Project Company"
+      },
+      {
+       "num": "6.1.2",
+       "text": "Documentation regarding all permits, registrations, consents, licenses, authorizations, or approvals"
+      },
+      {
+       "num": "6.1.3",
+       "text": "Approved building permits or building permit applications"
+      },
+      {
+       "num": "6.1.4",
+       "text": "Demo and abatement permits"
+      },
+      {
+       "num": "6.1.5",
+       "text": "Sitework, soil erosion and sediment control, and grading permits"
+      },
+      {
+       "num": "6.1.6",
+       "text": "Storm water approvals"
+      },
+      {
+       "num": "6.1.7",
+       "text": "Sanitary sewer approvals"
+      }
+     ]
+    },
+    {
+     "num": "6.2",
+     "name": "Regulatory Compliance",
+     "items": [
+      {
+       "num": "6.2.1",
+       "text": "Any reports relating to the Project Company’s compliance with governmental regulations"
+      },
+      {
+       "num": "6.2.2",
+       "text": "Documentation showcasing compliance with labor, health, and safety regulations"
+      },
+      {
+       "num": "6.2.3",
+       "text": "Reports or certifications related to workplace safety and risk mitigation"
+      },
+      {
+       "num": "6.2.4",
+       "text": "Adherence to environmental laws"
+      }
+     ]
+    },
+    {
+     "num": "6.3",
+     "name": "Regulatory Environment",
+     "items": [
+      {
+       "num": "6.3.1",
+       "text": "List of all relevant laws, regulations, or guidelines impacting the Project"
+      },
+      {
+       "num": "6.3.2",
+       "text": "Applicable tax regime"
+      },
+      {
+       "num": "6.3.3",
+       "text": "Foreign investment rules"
+      },
+      {
+       "num": "6.3.4",
+       "text": "Trade policies"
+      },
+      {
+       "num": "6.3.5",
+       "text": "Applicable depreciation regime"
+      },
+      {
+       "num": "6.3.6",
+       "text": "Information on tariff regulations and pricing mechanisms applicable to the Project"
+      },
+      {
+       "num": "6.3.7",
+       "text": "Regulatory risks, potential changes in policies, and impact on Project’s viability"
+      }
+     ]
+    }
+   ],
+   "item_count": 18
+  },
+  {
+   "num": "7",
+   "name": "Risk Management",
+   "subcategories": [
+    {
+     "num": "7.1",
+     "name": "List of Current Insurance Coverage (Project, Construction, Corporate, etc.)",
+     "items": [
+      {
+       "num": "7.1.1",
+       "text": "Insurance carriers"
+      },
+      {
+       "num": "7.1.2",
+       "text": "Coverage limits"
+      },
+      {
+       "num": "7.1.3",
+       "text": "Premiums"
+      },
+      {
+       "num": "7.1.4",
+       "text": "Renewal dates"
+      }
+     ]
+    },
+    {
+     "num": "7.2",
+     "name": "Insurance Underwriting Report",
+     "items": [
+      {
+       "num": "7.2.1",
+       "text": "Overview of administrative, financial, commercial, technical, legal, regulatory, and ESG risks"
+      },
+      {
+       "num": "7.2.2",
+       "text": "Risk assessment and mitigation strategies"
+      },
+      {
+       "num": "7.2.3",
+       "text": "Insurance coverage requirements"
+      },
+      {
+       "num": "7.2.4",
+       "text": "Proposed insurance and risk management programs"
+      }
+     ]
+    },
+    {
+     "num": "7.3",
+     "name": "Title Insurance",
+     "items": [
+      {
+       "num": "7.3.1",
+       "text": "Current title commitment and exception documents"
+      },
+      {
+       "num": "7.3.2",
+       "text": "Deed of trust"
+      },
+      {
+       "num": "7.3.3",
+       "text": "Proforma title policy (policy to be delivered post-closing)"
+      },
+      {
+       "num": "7.3.4",
+       "text": "Current ALTA/ACSM survey"
+      },
+      {
+       "num": "7.3.5",
+       "text": "Mortgage title insurance commitment"
+      },
+      {
+       "num": "7.3.6",
+       "text": "Underlying recorded documents affecting the properties"
+      },
+      {
+       "num": "7.3.7",
+       "text": "Title affidavit"
+      },
+      {
+       "num": "7.3.8",
+       "text": "GAP Indemnity"
+      },
+      {
+       "num": "7.3.9",
+       "text": "Mortgage recording tax affidavits"
+      },
+      {
+       "num": "7.3.10",
+       "text": "Title insurance bill"
+      }
+     ]
+    },
+    {
+     "num": "7.4",
+     "name": "Insurance and Bonding",
+     "items": [
+      {
+       "num": "7.4.1",
+       "text": "Builder’s risk insurance and general liability policies in place"
+      },
+      {
+       "num": "7.4.2",
+       "text": "Workers’ compensation insurance obtained"
+      },
+      {
+       "num": "7.4.3",
+       "text": "Insurance for environmental, weather, and disaster risks confirmed"
+      },
+      {
+       "num": "7.4.4",
+       "text": "Post-construction insurance policies secured"
+      },
+      {
+       "num": "7.4.5",
+       "text": "Performance bonds for general contractor in place"
+      },
+      {
+       "num": "7.4.6",
+       "text": "Payment bonds for subcontractor and supplier protection obtained"
+      },
+      {
+       "num": "7.4.7",
+       "text": "Contractor and subcontractor bonding capacity verified"
+      }
+     ]
+    }
+   ],
+   "item_count": 25
+  },
+  {
+   "num": "8",
+   "name": "ESG",
+   "subcategories": [
+    {
+     "num": "8.1",
+     "name": "Social",
+     "items": [
+      {
+       "num": "8.1.1",
+       "text": "Social impact overview"
+      },
+      {
+       "num": "8.1.2",
+       "text": "Stakeholder engagement plans"
+      },
+      {
+       "num": "8.1.3",
+       "text": "Stakeholder consultations"
+      },
+      {
+       "num": "8.1.4",
+       "text": "Job creation"
+      },
+      {
+       "num": "8.1.5",
+       "text": "Social benefits"
+      },
+      {
+       "num": "8.1.6",
+       "text": "Community consultations completed and commitments documented"
+      }
+     ]
+    },
+    {
+     "num": "8.2",
+     "name": "Environmental",
+     "items": [
+      {
+       "num": "8.2.1",
+       "text": "Environmental impact overview"
+      },
+      {
+       "num": "8.2.2",
+       "text": "Description of sustainability initiatives and commitments related to the project"
+      },
+      {
+       "num": "8.2.3",
+       "text": "Waste management plans"
+      },
+      {
+       "num": "8.2.4",
+       "text": "Details of any renewable energy integration or energy efficiency measures"
+      },
+      {
+       "num": "8.2.5",
+       "text": "Other ESG-related initiatives"
+      },
+      {
+       "num": "8.2.6",
+       "text": "Environmental mitigation plans approved (wildlife, noise, etc.)"
+      }
+     ]
+    }
+   ],
+   "item_count": 12
+  }
+ ]
+}

@@ -54,6 +54,7 @@ def value_gated_fees(
     discount_rate: float = DEFAULT_DISCOUNT_RATE,
     gate_probability: float = DEFAULT_GATE_PROBABILITY,
     months_per_gate: float = 3.0,
+    gate_probabilities: dict[str, float] | None = None,
 ) -> dict:
     """
     Risk-adjusted PV of a gate ledger from services/gate_fee_engine.py.
@@ -71,6 +72,12 @@ def value_gated_fees(
     if not gates:
         return {"pv": 0.0, "face": 0.0, "note": "No development gates on this ledger."}
 
+    # When a per-gate probability map is supplied (from
+    # services/success_predictor.py), use each gate's own predicted odds
+    # instead of one flat rate. A deal missing audited financials should
+    # discount its rating gate specifically, not every gate equally.
+    pmap = gate_probabilities or {}
+
     banked = 0.0
     at_risk_face = 0.0
     pv = 0.0
@@ -85,7 +92,14 @@ def value_gated_fees(
         at_risk_face += amt
         years = (g.get("seq", 1) * months_per_gate) / 12.0
         # Each successive gate compounds the risk of the ones before it.
-        cumulative_p = gate_probability ** g.get("seq", 1)
+        if pmap:
+            cumulative_p = 1.0
+            for prior in sorted(gates, key=lambda x: x.get("seq", 0)):
+                if prior.get("seq", 0) > g.get("seq", 0):
+                    break
+                cumulative_p *= pmap.get(prior["id"], gate_probability)
+        else:
+            cumulative_p = gate_probability ** g.get("seq", 1)
         pv += _pv(amt * cumulative_p, years, discount_rate)
 
     return {
@@ -97,6 +111,7 @@ def value_gated_fees(
             "discount_rate": discount_rate,
             "gate_probability": gate_probability,
             "months_per_gate": months_per_gate,
+            "probability_source": "success_predictor" if pmap else "flat_default",
         },
     }
 
@@ -230,6 +245,7 @@ def optimize_engagement(
     discount_rate: float = DEFAULT_DISCOUNT_RATE,
     close_probability: float = DEFAULT_CLOSE_PROBABILITY,
     candidate_dev_bp: list[float] | None = None,
+    deal: dict | None = None,
 ) -> dict:
     """
     Search the fee mix that maximizes NEST's risk-adjusted PV while keeping
@@ -251,6 +267,15 @@ def optimize_engagement(
     candidates = candidate_dev_bp or [10, 20, 30, 45, 60, 80, 100, 125, 150]
     from services.gate_fee_engine import gate_fee_engine
 
+    # A supplied deal drives real, per-gate stall risk and a real close
+    # probability, replacing the flat defaults.
+    pmap, prediction = None, None
+    if deal:
+        from services.success_predictor import predict_success
+        prediction = predict_success(deal)
+        pmap = {g['gate_id']: g['probability'] for g in prediction['gates']}
+        close_probability = prediction['probability_of_close']
+
     results = []
     for dev_bp in candidates:
         if dev_bp > client_cost_ceiling_bp:
@@ -264,7 +289,8 @@ def optimize_engagement(
             placement_fee_bp=success_bp,
             placement_licensed=licensed_by_close,
         )
-        gated = value_gated_fees(ledger, discount_rate=discount_rate)
+        gated = value_gated_fees(ledger, discount_rate=discount_rate,
+                                 gate_probabilities=pmap)
         success = value_success_fee(
             par=par, fee_bp=success_bp, years_to_close=years_to_close,
             close_probability=close_probability, discount_rate=discount_rate,
@@ -303,6 +329,7 @@ def optimize_engagement(
         "recommended": best,
         "all_candidates": results,
         "equity_overlay": equity,
+        "success_prediction": prediction,
         "total_pv_with_equity": round(
             best["total_pv"] + (equity["pv"] if equity else 0.0), 2),
         "rationale": (
