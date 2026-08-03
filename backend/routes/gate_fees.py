@@ -246,3 +246,48 @@ def readiness_intake():
         return _err("deal_overrides must be an object", 400)
     from services.readiness_checklist import intake
     return _ok(intake(subs, deal_overrides=overrides))
+
+
+@gate_fees_bp.route("/preflight", methods=["POST"])
+def preflight():
+    """
+    Structural viability: assuming the checklist is complete, what still kills
+    this deal? Returns NO_GO / RESTRUCTURE / PROCEED_WITH_CONDITIONS / PROCEED.
+
+    Body: {"deal": {...}}
+    """
+    body = request.get_json() or {}
+    deal = body.get("deal")
+    if not isinstance(deal, dict):
+        return _err("deal is required and must be an object", 400)
+    from services.preflight import run_preflight
+    return _ok(run_preflight(deal))
+
+
+@gate_fees_bp.route("/flow", methods=["POST"])
+def flow():
+    """
+    Full front-of-engagement chain: readiness -> preflight -> prediction ->
+    fee optimization -> ledger, with a single recommended action.
+
+    Body: {"submissions": {...}?, "deal": {...}?, "series_name": "...",
+           "par": 55000000, "client_cost_ceiling_bp": 362.5,
+           "program_architecture_fee": 0?, "licensed_by_close": false?}
+    """
+    body = request.get_json() or {}
+    from services.deal_preflight_flow import run_flow
+    try:
+        return _ok(run_flow(
+            submissions=body.get("submissions") or {},
+            deal=body.get("deal") or {},
+            series_name=body.get("series_name", "Series"),
+            par=float(body.get("par", 0) or 0),
+            client_cost_ceiling_bp=float(body.get("client_cost_ceiling_bp", 362.5)),
+            development_fee_bp=(float(body["development_fee_bp"])
+                                if body.get("development_fee_bp") else None),
+            program_architecture_fee=float(body.get("program_architecture_fee", 0) or 0),
+            licensed_by_close=bool(body.get("licensed_by_close", False)),
+            years_to_close=float(body.get("years_to_close", 2.0)),
+        ))
+    except (TypeError, ValueError) as exc:
+        return _err(f"Invalid input: {exc}", 400)
