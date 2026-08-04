@@ -9,6 +9,10 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 
 from services.gate_fee_engine import GateFeeError, gate_fee_engine
+from services.pom_engine import (
+    COUNSEL_RESERVED, DEFAULT_COMMENT_CYCLES, DEFAULT_DRAFTING_MODEL,
+    DRAFTING_MODELS, POM_SECTIONS, POMError, compare_drafting_models, plan_pom,
+)
 
 gate_fees_bp = Blueprint("gate_fees", __name__)
 
@@ -323,3 +327,51 @@ def stairway_full_route():
         return _err("deal is required and must be an object", 400)
     from services.stairway import stairway_full
     return _ok(stairway_full(deal))
+
+
+# --- POM engine: what the offering document actually costs NEST to produce.
+
+@gate_fees_bp.route("/pom/plan", methods=["POST"])
+def pom_plan():
+    """
+    Derive NEST's POM hours from the engagement structure and the deal.
+
+    Body: {"deal": {...}?, "drafting_model": "market_standard"?,
+           "comment_cycles": 4?}
+    """
+    body = request.get_json() or {}
+    try:
+        return _ok(plan_pom(
+            body.get("deal") or {},
+            drafting_model=body.get("drafting_model", DEFAULT_DRAFTING_MODEL),
+            comment_cycles=int(body.get("comment_cycles",
+                                        DEFAULT_COMMENT_CYCLES)),
+        ))
+    except (POMError, TypeError, ValueError) as e:
+        return _err(str(e), 400)
+
+
+@gate_fees_bp.route("/pom/compare", methods=["POST"])
+def pom_compare():
+    """
+    Price the same offering document under all three drafting models.
+
+    Body: {"deal": {...}?, "comment_cycles": 4?}
+    """
+    body = request.get_json() or {}
+    try:
+        return _ok(compare_drafting_models(
+            body.get("deal") or {},
+            comment_cycles=int(body.get("comment_cycles",
+                                        DEFAULT_COMMENT_CYCLES)),
+        ))
+    except (POMError, TypeError, ValueError) as e:
+        return _err(str(e), 400)
+
+
+@gate_fees_bp.route("/pom/sections", methods=["GET"])
+def pom_sections():
+    """The canonical POM section list, with owners and hour estimates."""
+    return _ok({"sections": POM_SECTIONS,
+                "drafting_models": list(DRAFTING_MODELS),
+                "counsel_reserved": sorted(COUNSEL_RESERVED)})
