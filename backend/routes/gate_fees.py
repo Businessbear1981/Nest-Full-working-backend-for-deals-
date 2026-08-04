@@ -8,6 +8,10 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
+from services.document_package import (
+    DOC_STATUSES, DOCUMENT_CATALOGUE, SILOS, DocumentPackageError,
+    build_package, silo_package,
+)
 from services.gate_fee_engine import GateFeeError, gate_fee_engine
 from services.pom_engine import (
     COUNSEL_RESERVED, DEFAULT_COMMENT_CYCLES, DEFAULT_DRAFTING_MODEL,
@@ -375,3 +379,38 @@ def pom_sections():
     return _ok({"sections": POM_SECTIONS,
                 "drafting_models": list(DRAFTING_MODELS),
                 "counsel_reserved": sorted(COUNSEL_RESERVED)})
+
+
+# --- Universal document package: what each silo must produce, and when.
+
+@gate_fees_bp.route("/documents/package", methods=["POST"])
+def documents_package():
+    """
+    The full document package for a deal, silo by silo.
+
+    Body: {"deal": {...}?, "statuses": {"doc_id": "accepted", ...}?}
+    """
+    body = request.get_json() or {}
+    try:
+        return _ok(build_package(body.get("deal") or {},
+                                 body.get("statuses") or {}))
+    except (DocumentPackageError, TypeError, ValueError) as e:
+        return _err(str(e), 400)
+
+
+@gate_fees_bp.route("/documents/silo/<silo_id>", methods=["POST"])
+def documents_silo(silo_id):
+    """One silo's package, for the drill-down view."""
+    body = request.get_json() or {}
+    try:
+        return _ok(silo_package(silo_id, body.get("deal") or {},
+                                body.get("statuses") or {}))
+    except (DocumentPackageError, TypeError, ValueError) as e:
+        return _err(str(e), 400)
+
+
+@gate_fees_bp.route("/documents/catalogue", methods=["GET"])
+def documents_catalogue():
+    """The universal catalogue and the ten silos, independent of any deal."""
+    return _ok({"documents": DOCUMENT_CATALOGUE, "silos": SILOS,
+                "statuses": list(DOC_STATUSES)})
