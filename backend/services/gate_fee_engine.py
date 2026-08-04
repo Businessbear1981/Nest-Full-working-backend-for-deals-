@@ -146,6 +146,34 @@ VALID_STATUSES = ("pending", "in_progress", "delivered", "accepted",
 # characterization we cannot afford pre-license.
 HOURS_PROVENANCE = "HAND_SET_PLANNING_ESTIMATE"
 
+# The gate hours above are calibrated to a reference series. Real effort does
+# not scale linearly with par -- a $10M series still needs its own indenture,
+# its own opinion, its own disclosure -- but it does not need as much of any of
+# them as a $350M series. Hours are therefore split into an irreducible fixed
+# component and a component that scales with the square root of par.
+#
+#   hours(par) = base * [ FIXED + (1 - FIXED) * sqrt(par / REFERENCE_PAR) ]
+#
+# At the reference par the multiplier is exactly 1.0, so the numbers above are
+# unchanged for a $100M series. HAND_SET: the shape is a judgment call, not a
+# measurement, and stays that way until NEST has timesheets from closed deals.
+REFERENCE_PAR = 100_000_000.0
+FIXED_EFFORT_FRACTION = 0.45
+EFFORT_SCALE_EXPONENT = 0.5
+
+# Fully-loaded senior-banker cost recovery. A development fee implying less
+# than this is being subsidised by the success fee, which is precisely the
+# arrangement an unlicensed advisor cannot defend. HAND_SET.
+TARGET_BLENDED_HOURLY = 275.0
+
+
+def _effort_multiplier(par: float) -> float:
+    """Scale factor applied to every gate's base hours for a given par."""
+    ratio = max(par, 0.0) / REFERENCE_PAR
+    return FIXED_EFFORT_FRACTION + (
+        (1.0 - FIXED_EFFORT_FRACTION) * (ratio ** EFFORT_SCALE_EXPONENT)
+    )
+
 # A gate is only invoiceable once the client has accepted the deliverable.
 INVOICEABLE_FROM = ("accepted", "paid")
 
@@ -159,7 +187,7 @@ def _now() -> str:
 
 
 def _effort_summary(gates: list[dict], dev_pool: float,
-                    placement_pool: float) -> dict:
+                    placement_pool: float, par: float = 0.0) -> dict:
     """
     Hours behind the fee, and what that implies per hour.
 
@@ -171,12 +199,25 @@ def _effort_summary(gates: list[dict], dev_pool: float,
     plc = [g for g in gates if g["fee_class"] == "placement"]
     dev_hours = sum(g.get("hours_estimate") or 0 for g in dev)
     plc_hours = sum(g.get("hours_estimate") or 0 for g in plc)
+    dev_hourly = round(dev_pool / dev_hours, 2) if dev_hours else None
+    # The floor that would bring this series up to cost recovery. Surfaced as a
+    # number the schedule can act on rather than a warning nobody sizes.
+    implied_floor = round(dev_hours * TARGET_BLENDED_HOURLY, 2) if dev_hours else None
     return {
         "development_hours": dev_hours,
         "placement_hours": plc_hours,
         "total_hours": dev_hours + plc_hours,
-        "development_effective_hourly": (round(dev_pool / dev_hours, 2)
-                                         if dev_hours else None),
+        "effort_multiplier": round(_effort_multiplier(par), 4) if par else None,
+        "effort_scaling_note": (
+            f"Gate hours scale with par against a ${REFERENCE_PAR:,.0f} "
+            f"reference: {FIXED_EFFORT_FRACTION:.0%} of effort is fixed per "
+            f"series, the remainder scales with sqrt(par)."
+        ),
+        "target_blended_hourly": TARGET_BLENDED_HOURLY,
+        "development_below_cost": (dev_hourly is not None
+                                   and dev_hourly < TARGET_BLENDED_HOURLY),
+        "development_fee_floor_for_cost_recovery": implied_floor,
+        "development_effective_hourly": dev_hourly,
         "placement_effective_hourly": (round(placement_pool / plc_hours, 2)
                                        if plc_hours and placement_pool else None),
         "hours_provenance": HOURS_PROVENANCE,
@@ -225,13 +266,18 @@ class GateFeeEngine:
 
         placement_pool = par * placement_fee_bp / 10_000 if placement_licensed else 0.0
 
+        effort_mult = _effort_multiplier(par)
+
         gates: list[dict] = []
         for g in DEVELOPMENT_GATES:
+            hours = max(1, round((g.get("hours_estimate") or 0) * effort_mult))
             gates.append({
                 **g,
                 "fee_class": "development",
+                "hours_estimate": hours,
+                "hours_estimate_reference": g.get("hours_estimate"),
                 "amount": round(dev_pool * g["weight"], 2),
-                "effective_hourly": (round(dev_pool * g["weight"] / g["hours_estimate"], 2)
+                "effective_hourly": (round(dev_pool * g["weight"] / hours, 2)
                                      if g.get("hours_estimate") else None),
                 "status": "pending",
                 "delivered_at": None,
@@ -240,11 +286,14 @@ class GateFeeEngine:
                 "available_pre_license": True,
             })
         for g in PLACEMENT_GATES:
+            hours = max(1, round((g.get("hours_estimate") or 0) * effort_mult))
             gates.append({
                 **g,
                 "fee_class": "placement",
+                "hours_estimate": hours,
+                "hours_estimate_reference": g.get("hours_estimate"),
                 "amount": round(placement_pool * g["weight"], 2),
-                "effective_hourly": (round(placement_pool * g["weight"] / g["hours_estimate"], 2)
+                "effective_hourly": (round(placement_pool * g["weight"] / hours, 2)
                                      if g.get("hours_estimate") and placement_pool else None),
                 "status": "pending",
                 "delivered_at": None,
@@ -274,7 +323,7 @@ class GateFeeEngine:
             # pay-on-delivery; this is not, because the deliverable itself is
             # delivered on day one and is portable. See PROGRAM_ARCHITECTURE
             # note below.
-            "effort": _effort_summary(gates, dev_pool, placement_pool),
+            "effort": _effort_summary(gates, dev_pool, placement_pool, par),
             "upfront_due": round(program_architecture_fee, 2),
             "program_architecture_fee": {
                 "amount": round(program_architecture_fee, 2),

@@ -6,7 +6,9 @@ unlicensed.
 """
 import pytest
 
-from services.gate_fee_engine import GateFeeError, gate_fee_engine
+from services.gate_fee_engine import (
+    REFERENCE_PAR, TARGET_BLENDED_HOURLY, GateFeeError, gate_fee_engine,
+)
 from services.engagement_economics import (
     optimize_engagement, value_equity, value_gated_fees, value_success_fee,
 )
@@ -199,3 +201,64 @@ class TestRoutes:
         r = client.get("/api/gate-fees/gates")
         assert r.status_code == 200
         assert len(r.get_json()["data"]["development_gates"]) == 8
+
+
+class TestEffortScaling:
+    """
+    Gate hours scale with par. Without this a $10M series and a $350M series
+    carried identical hours, which made the small series look like it was
+    billed at $96/hour -- an artifact of the model, not of the work.
+    """
+
+    def test_reference_par_is_unchanged(self):
+        """The reference series must still produce the hand-set baseline."""
+        L = gate_fee_engine.build_ledger(
+            series_name="ref", par=REFERENCE_PAR, development_fee_bp=45)
+        assert L["effort"]["effort_multiplier"] == 1.0
+        assert L["effort"]["development_hours"] == 940
+
+    def test_hours_rise_with_par_but_sublinearly(self):
+        small = gate_fee_engine.build_ledger(
+            series_name="s", par=10_000_000, development_fee_bp=90)
+        big = gate_fee_engine.build_ledger(
+            series_name="b", par=250_000_000, development_fee_bp=35)
+        sh = small["effort"]["development_hours"]
+        bh = big["effort"]["development_hours"]
+        assert sh < bh
+        # 25x the par must not imply anything close to 25x the hours.
+        assert bh < sh * 3
+
+    def test_small_series_is_flagged_below_cost(self):
+        """2027A at 90bp on $10M does not cover senior-banker time."""
+        L = gate_fee_engine.build_ledger(
+            series_name="2027A", par=10_000_000, development_fee_bp=90)
+        e = L["effort"]
+        assert e["development_below_cost"] is True
+        assert e["development_effective_hourly"] < TARGET_BLENDED_HOURLY
+        assert e["development_fee_floor_for_cost_recovery"] > \
+            L["fee_pools"]["development"]
+
+    def test_applying_the_reported_floor_clears_below_cost(self):
+        """The engine's own remedy must actually work when applied."""
+        par = 10_000_000
+        probe = gate_fee_engine.build_ledger(
+            series_name="2027A", par=par, development_fee_bp=90)
+        floor = probe["effort"]["development_fee_floor_for_cost_recovery"]
+        fixed = gate_fee_engine.build_ledger(
+            series_name="2027A", par=par, development_fee_bp=90,
+            development_fee_floor=floor)
+        e = fixed["effort"]
+        assert e["development_below_cost"] is False
+        assert e["development_effective_hourly"] >= TARGET_BLENDED_HOURLY
+
+    def test_large_series_clears_cost_on_tier_pricing(self):
+        L = gate_fee_engine.build_ledger(
+            series_name="big", par=262_500_000, development_fee_bp=35)
+        assert L["effort"]["development_below_cost"] is False
+
+    def test_per_gate_hours_are_scaled_and_reference_retained(self):
+        L = gate_fee_engine.build_ledger(
+            series_name="s", par=10_000_000, development_fee_bp=90)
+        g = L["gates"][0]
+        assert g["hours_estimate"] < g["hours_estimate_reference"]
+        assert g["hours_estimate"] >= 1
