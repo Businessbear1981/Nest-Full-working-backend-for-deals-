@@ -1,7 +1,7 @@
 # NEST Operations Manual — Volume 3
 ## The Dictionary
 
-> **Generated 2026-08-04** by `scripts/build_dictionary.py`. Do not hand-edit — edit the sources and regenerate, or the volume and the platform drift apart silently.
+> **Generated 2026-08-05** by `scripts/build_dictionary.py`. Do not hand-edit — edit the sources and regenerate, or the volume and the platform drift apart silently.
 >
 > **What this volume is.** For every term in the transaction: what it is, why it exists, and who is responsible. This is the *domain*. Every entry here would still be true if NEST did not exist.
 >

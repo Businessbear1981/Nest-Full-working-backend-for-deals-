@@ -25,6 +25,7 @@ import datetime as dt
 import html
 import pathlib
 import re
+import sys
 
 BRAND_CSS = """
 :root{
@@ -114,12 +115,21 @@ footer .mono{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
 @media(max-width:620px){.doctitle{font-size:30px}h1{font-size:26px}h2{font-size:22px}}
 """
 
-FONTS = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
-         '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-         '<link href="https://fonts.googleapis.com/css2?'
-         'family=Cormorant+Garamond:wght@300;400;600&'
-         'family=Space+Grotesk:wght@300;400;500;600&'
-         'family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">')
+# Fonts are embedded, not linked. A linked webfont makes the document render
+# differently depending on where it is opened: headless Chromium does not wait
+# for the fetch when printing, so every PDF fell back to Georgia and Segoe UI
+# while the same HTML looked correct in a browser. Embedding makes a branded
+# document self-contained -- identical on screen, in print, and when emailed.
+# Regenerate with scripts/fetch_brand_fonts.py.
+try:
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+    from assets.brand_fonts import FONT_FACE_CSS
+    FONTS = f"<style>{FONT_FACE_CSS}</style>"
+except ImportError:  # fonts not fetched yet -- degrade loudly, not silently
+    FONTS = ""
+    print("WARNING: assets/brand_fonts.py missing — output will NOT be "
+          "NEST-branded. Run: python scripts/fetch_brand_fonts.py",
+          file=sys.stderr)
 
 CLIENT_FOOTER = (
     "NEST Advisors is not a registered broker-dealer or placement agent. No "

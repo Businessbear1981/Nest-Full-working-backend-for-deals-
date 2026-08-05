@@ -1,7 +1,7 @@
 # NEST Operations Manual — Volume 4, Part B
 ## The Module Map
 
-> **Generated 04 August 2026** by `scripts/build_mapping.py` from `backend/services/platform_readiness.py`. Do not hand-edit — the code is the source of truth and a hand edit will be overwritten.
+> **Generated 05 August 2026** by `scripts/build_mapping.py` from `backend/services/platform_readiness.py`. Do not hand-edit — the code is the source of truth and a hand edit will be overwritten.
 >
 > **What this is.** Every backend module, and whether a user can actually reach it. Volume 4 Part A (`docs/NEST_GLOSSARY.md`) says what each module was *intended* to do. This says what is *true*.
 
