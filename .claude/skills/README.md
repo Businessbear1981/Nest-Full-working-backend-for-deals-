@@ -17,17 +17,28 @@ consume context until it is needed.
 
 | Skill | Use it when | What it locks |
 |---|---|---|
-| **`nest-docs`** | Producing any document that leaves this machine | Format, confidence tagging, threshold provenance, anti-fabrication rules |
+| **`nest-docs`** | Designing what a silo owes a client | The 60-document package, ten silos, each joined to a fee gate |
+| **`nest-house-style`** | Producing any document that leaves this machine | Format, confidence tagging, threshold provenance, anti-fabrication rules |
 | **`nest-deal-run`** | Running a deal through NEST, sizing a fee, assessing financeability | One script, the whole engine chain, real output |
 | **`nest-truth-shield`** | Before anything goes to a client; when asked "do you agree" | Verification before assertion; the standing red list |
+| **`nest-filecabinet`** | End of a working session; writing up the day; asking why a past decision was made | One dated file, four sections, append-only |
+| **`kevin`** | Opening or closing a cross-working session with Kevin | The generated synopsis, the rebuild-don't-patch rule, publishing to the shared workspace |
 
 They compose. The intended flow:
 
 ```
-nest-deal-run    →  produce the numbers by running the engines
-nest-docs        →  format them into a document, tagged and sourced
+kevin             →  open the session on agreed, generated facts
+nest-docs         →  decide what the silo owes
+nest-deal-run     →  produce the numbers by running the engines
+nest-house-style  →  format them into a document, tagged and sourced
 nest-truth-shield →  verify every claim before it leaves
+nest-filecabinet  →  file what was decided, built, found, and left open
+kevin             →  close the session and publish it
 ```
+
+`kevin` brackets the others: it is the only skill that appears twice, because
+a session that opens on agreed facts and never closes on a filed record leaves
+the next one reconstructing both from memory.
 
 ---
 
