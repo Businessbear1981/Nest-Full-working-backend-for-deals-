@@ -38,17 +38,21 @@ PROMPTS = {
 def git(*args: str) -> str:
     try:
         return subprocess.run(("git",) + args, cwd=REPO, capture_output=True,
-                              text=True, check=True).stdout.strip()
+                              text=True, encoding="utf-8", errors="replace",
+                              check=True).stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return ""
 
 
 def commits_on(day: dt.date) -> list[str]:
     """Commits authored on the given day, newest first."""
-    nxt = day + dt.timedelta(days=1)
-    raw = git("log", f"--since={day.isoformat()}", f"--until={nxt.isoformat()}",
-              "--pretty=format:%h %s")
-    return [ln for ln in raw.splitlines() if ln.strip()]
+    # `--since`/`--until` with a bare date parse against the reader's timezone
+    # and silently return nothing. Ask git for the authored date and filter
+    # here, where the comparison is exact.
+    raw = git("log", "--date=short", "--pretty=format:%ad %h %s")
+    stamp = day.isoformat()
+    return [ln[11:] for ln in raw.splitlines()
+            if ln.strip() and ln.startswith(stamp)]
 
 
 def parse(text: str) -> dict[str, list[str]]:
