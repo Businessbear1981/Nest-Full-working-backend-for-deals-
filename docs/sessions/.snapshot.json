@@ -1,0 +1,23 @@
+{
+  "date": "2026-08-04",
+  "head": "aa3eb862688cea457edbe252af9cf537d94102d5",
+  "totals": {
+    "modules": 156,
+    "reachable": 126,
+    "unreachable": 30,
+    "pct_reachable": 0.8077,
+    "route_modules": 58,
+    "routes_wired": 27,
+    "frontend_components": 208,
+    "api_prefixes_called": 42
+  },
+  "by_verdict": {
+    "REACHABLE_UNUSED": 68,
+    "UNREACHABLE": 30,
+    "BUILD_FRONTEND": 15,
+    "HOLLOW": 2,
+    "REBUILD": 5,
+    "WIRE": 11,
+    "WIRED": 25
+  }
+}
